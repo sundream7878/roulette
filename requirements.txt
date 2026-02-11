@@ -5,4 +5,5 @@ Flask-SocketIO==5.3.2
 flask-cors==3.0.10
 wtforms==3.0.1
 gunicorn==22.0.0
+requests
 

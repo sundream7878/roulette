@@ -1,0 +1,5 @@
+monitor_view.py
+templates/monitor.html
+# 로컬 테스트용 데이터 파일들 (필요시)
+users.txt
+participants.txt

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>댓글 모니터링 (로컬전용)</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        input[type="text"] { width: 100%; padding: 10px; margin-bottom: 10px; }
+        button { padding: 10px 20px; cursor: pointer; background: #28a745; color: white; border: none; }
+        #status { margin-top: 20px; padding: 10px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Naver 카페 댓글 모니터링</h1>
+        <p>로컬 전용 페이지입니다. (배포 제외)</p>
+        <input type="text" id="cafeUrl" placeholder="네이버 카페 게시글 URL을 입력하세요">
+        <button onclick="startMonitoring()">참가자 수집 시작</button>
+        
+        <div id="status">상태: 대기 중...</div>
+        <ul id="participantList"></ul>
+    </div>
+
+    <script>
+        async function startMonitoring() {
+            const url = document.getElementById('cafeUrl').value;
+            const statusDiv = document.getElementById('status');
+            const listUl = document.getElementById('participantList');
+
+            if (!url) {
+                alert('URL을 입력해주세요.');
+                return;
+            }
+
+            statusDiv.innerText = '댓글 수집 중...';
+            
+            try {
+                const response = await fetch('/api/fetch_comments', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const result = await response.json();
+                
+                if (result.error) {
+                    statusDiv.innerText = '에러: ' + result.error;
+                } else {
+                    statusDiv.innerText = result.message;
+                    result.participants.forEach(p => {
+                        const li = document.createElement('li');
+                        li.innerText = p;
+                        listUl.appendChild(li);
+                    });
+                }
+            } catch (e) {
+                statusDiv.innerText = '통신 에러가 발생했습니다.';
+            }
+        }
+    </script>
+</body>
+</html>

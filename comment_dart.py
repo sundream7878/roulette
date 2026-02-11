@@ -10,8 +10,19 @@ from wtforms.validators import DataRequired
 
 from flask_socketio import SocketIO
 
+# [추가] 로컬 전용 모니터링 블루프린트 임포트
+try:
+    from monitor_view import monitor_bp
+    HAS_MONITOR = True
+except ImportError:
+    HAS_MONITOR = False
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
+
+# [추가] 모니터링 블루프린트 등록
+if HAS_MONITOR:
+    app.register_blueprint(monitor_bp)
 
 # CORS 설정 추가
 CORS(app)

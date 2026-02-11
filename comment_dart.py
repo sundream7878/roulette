@@ -16,8 +16,8 @@ app.config['SECRET_KEY'] = 'your_secret_key'
 # CORS 설정 추가
 CORS(app)
 
-# [수정됨] SocketIO 객체 수정: async_mode를 'gevent'으로 변경 (서버 환경과 일치)
-socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins="*")
+# [수정됨] SocketIO 객체 수정: async_mode를 'threading'으로 변경 (빌드 에러 방지)
+socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*")
 
 # ----- 로그인 매니저 설정 -----
 login_manager = LoginManager()

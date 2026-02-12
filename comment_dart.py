@@ -450,4 +450,5 @@ socketio.start_background_task(send_current_time)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    socketio.run(app, host='0.0.0.0', port=port, debug=True)
+    # 로컬 개발 환경에서 Werkzeug 서버 실행을 위해 allow_unsafe_werkzeug=True 추가
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)

@@ -27,7 +27,8 @@ def parse_post_ids_from_url(url: str) -> Tuple[Optional[str], Optional[str]]:
 
         # 2. 모바일/RESTful 경로 (/cafes/.../articles/...)
         # 예: https://m.cafe.naver.com/ca-fe/web/cafes/12345/articles/67890
-        match = re.search(r'/cafes/(\d+)/articles/(\d+)', url)
+        # 예: https://cafe.naver.com/f-e/cafes/27870803/articles/67774
+        match = re.search(r'cafes/(\d+)/articles/(\d+)', url)
         if match:
             return match.group(1), match.group(2)
             

@@ -4,26 +4,70 @@
     <meta charset="UTF-8">
     <title>댓글 모니터링 (로컬전용)</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; }
-        .container { max-width: 600px; margin: 0 auto; }
-        input[type="text"] { width: 100%; padding: 10px; margin-bottom: 10px; }
-        button { padding: 10px 20px; cursor: pointer; background: #28a745; color: white; border: none; }
-        #status { margin-top: 20px; padding: 10px; border: 1px solid #ddd; }
+        body { font-family: sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        input[type="text"] { width: 100%; padding: 12px; margin-bottom: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 14px; }
+        .button-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        button { padding: 12px 24px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; font-size: 14px; }
+        .btn-primary { background: #28a745; color: white; flex: 1; }
+        .btn-primary:hover { background: #218838; }
+        .btn-secondary { background: #17a2b8; color: white; }
+        .btn-secondary:hover { background: #138496; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #c82333; }
+        #status { margin-top: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #f8f9fa; }
+        #participantList { list-style: none; padding: 0; margin-top: 20px; }
+        #participantList li { padding: 10px; margin: 5px 0; background: #e9ecef; border-radius: 5px; }
+        .stats { display: flex; gap: 20px; margin-top: 20px; }
+        .stat-box { flex: 1; padding: 15px; background: #007bff; color: white; border-radius: 5px; text-align: center; }
+        .stat-box h3 { margin: 0; font-size: 32px; }
+        .stat-box p { margin: 5px 0 0 0; font-size: 14px; }
+        label { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+        input[type="checkbox"] { width: 20px; height: 20px; }
+        input[type="number"] { width: 80px; padding: 5px; border: 2px solid #ddd; border-radius: 5px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Naver 카페 댓글 모니터링</h1>
-        <p>로컬 전용 페이지입니다. (배포 제외)</p>
+        <h1>🎯 Naver 카페 댓글 모니터링</h1>
+        <p style="color: #666;">로컬 전용 페이지 (배포 제외)</p>
+        
         <input type="text" id="cafeUrl" placeholder="네이버 카페 게시글 URL을 입력하세요">
-        <button onclick="startMonitoring()">참가자 수집 시작</button>
+        
+        <label>
+            <input type="checkbox" id="autoRefresh">
+            실시간 자동 갱신 (
+            <input type="number" id="refreshInterval" value="30" min="10" max="300">
+            초마다)
+        </label>
+        
+        <div class="button-group">
+            <button class="btn-primary" onclick="startMonitoring()">🔍 참가자 수집</button>
+            <button class="btn-secondary" onclick="clearList()">🗑️ 목록 초기화</button>
+        </div>
         
         <div id="status">상태: 대기 중...</div>
+        
+        <div class="stats">
+            <div class="stat-box">
+                <h3 id="participantCount">0</h3>
+                <p>총 참가자</p>
+            </div>
+            <div class="stat-box" style="background: #28a745;">
+                <h3 id="commentCount">0</h3>
+                <p>총 댓글 수</p>
+            </div>
+        </div>
+        
         <ul id="participantList"></ul>
     </div>
 
     <script>
-        async function startMonitoring() {
+        let autoRefreshTimer = null;
+        let lastUrl = '';
+
+        async function startMonitoring(isAuto = false) {
             const url = document.getElementById('cafeUrl').value;
             const statusDiv = document.getElementById('status');
             const listUl = document.getElementById('participantList');
@@ -33,6 +77,8 @@
                 return;
             }
 
+            lastUrl = url;
+            if (!isAuto) listUl.innerHTML = ''; // 수동 실행시에만 목록 초기화
             statusDiv.innerText = '댓글 수집 중...';
             
             try {
@@ -45,19 +91,55 @@
                 const result = await response.json();
                 
                 if (result.error) {
-                    statusDiv.innerText = '에러: ' + result.error;
+                    statusDiv.innerText = '❌ 에러: ' + result.error;
                 } else {
-                    statusDiv.innerText = result.message;
-                    result.participants.forEach(p => {
-                        const li = document.createElement('li');
-                        li.innerText = p;
-                        listUl.appendChild(li);
-                    });
+                    const now = new Date().toLocaleTimeString('ko-KR');
+                    statusDiv.innerText = `✅ ${result.message} (${now})`;
+                    
+                    // 통계 업데이트
+                    document.getElementById('participantCount').innerText = result.participants.length;
+                    document.getElementById('commentCount').innerText = result.total_comments || 0;
+                    
+                    // 참가자 목록 업데이트
+                    if (!isAuto) {
+                        result.participants.forEach(p => {
+                            const li = document.createElement('li');
+                            li.innerText = p;
+                            listUl.appendChild(li);
+                        });
+                    }
                 }
             } catch (e) {
-                statusDiv.innerText = '통신 에러가 발생했습니다.';
+                statusDiv.innerText = '❌ 통신 에러가 발생했습니다: ' + e.message;
             }
         }
+
+        function clearList() {
+            document.getElementById('participantList').innerHTML = '';
+            document.getElementById('participantCount').innerText = '0';
+            document.getElementById('commentCount').innerText = '0';
+            document.getElementById('status').innerText = '상태: 목록이 초기화되었습니다.';
+        }
+
+        // 자동 갱신 체크박스 이벤트
+        document.getElementById('autoRefresh').addEventListener('change', function(e) {
+            if (e.target.checked) {
+                if (!lastUrl) {
+                    alert('먼저 URL을 입력하고 수집을 시작해주세요.');
+                    e.target.checked = false;
+                    return;
+                }
+                const interval = parseInt(document.getElementById('refreshInterval').value) * 1000;
+                autoRefreshTimer = setInterval(() => startMonitoring(true), interval);
+                document.getElementById('status').innerText = `🔄 실시간 모니터링 활성화 (${interval/1000}초마다 갱신)`;
+            } else {
+                if (autoRefreshTimer) {
+                    clearInterval(autoRefreshTimer);
+                    autoRefreshTimer = null;
+                    document.getElementById('status').innerText = '⏸️ 실시간 모니터링 중지';
+                }
+            }
+        });
     </script>
 </body>
 </html>

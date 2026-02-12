@@ -23,31 +23,43 @@ def fetch_comments():
         return jsonify({'error': 'URL이 필요합니다.'}), 400
     
     try:
-        # 댓글 가져오기 (last_comment_id 없이 전체 또는 최신 가져오기)
-        # 모듈의 구현에 따라 인자 조절 필요
+        print(f"DEBUG: Fetching comments for URL: {url}")
+        # 댓글 가져오기
         comments = monitor_instance.get_new_comments(url)
+        print(f"DEBUG: Found {len(comments) if comments else 0} comments")
         
         if not comments:
             return jsonify({'message': '새로운 댓글이 없습니다.', 'count': 0})
 
-        # 아이디 추출 및 저장 (중복 제거)
-        new_participants = set()
+        # 아이디 추출 및 댓글 개수 카운트 (중복 제거하되 개수는 세기)
+        participant_counts = {}
         for comment in comments:
-            # comment 객체의 구조에 따라 수정 (예: comment['writer_id'])
-            writer = comment.get('nickname') or comment.get('writer_id')
-            if writer:
-                new_participants.add(writer)
+            writer = comment.get('author_nickname') or comment.get('author_id')
+            if writer and writer != 'None':
+                participant_counts[writer] = participant_counts.get(writer, 0) + 1
 
-        # participants.txt에 저장 (기존 파일에 추가 또는 덮어쓰기 선택 가능)
-        # 여기서는 단순하게 '이름 1' 형식으로 저장한다고 가정
+        print(f"DEBUG: Extracted {len(participant_counts)} unique participants")
+        print(f"DEBUG: Participant counts: {participant_counts}")
+
+        if not participant_counts:
+            return jsonify({'message': '수집된 유효한 참가자가 없습니다.', 'participants': []})
+
+        # participants.txt에 저장 (이름과 댓글 개수)
         with open(PARTICIPANTS_FILE, 'a', encoding='utf-8') as f:
-            for name in new_participants:
-                f.write(f"{name} 1\n")
+            for name, count in participant_counts.items():
+                f.write(f"{name} {count}\n")
+
+        # 결과 포맷팅
+        participant_list = [f"{name} ({count}개)" for name, count in participant_counts.items()]
 
         return jsonify({
-            'message': f'{len(new_participants)}명의 참가자가 추가되었습니다.',
-            'participants': list(new_participants)
+            'message': f'{len(participant_counts)}명의 참가자가 추가되었습니다. (총 댓글: {sum(participant_counts.values())}개)',
+            'participants': participant_list,
+            'total_comments': sum(participant_counts.values())
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"DEBUG: Error occurred:\n{error_details}")
+        return jsonify({'error': str(e), 'details': error_details}), 500

@@ -12,10 +12,26 @@ from flask_socketio import SocketIO
 
 # [추가] 로컬 전용 모니터링 블루프린트 임포트
 try:
-    from monitor_view import monitor_bp, db, sync_files, get_allowed_list
+    from monitor_view import monitor_bp, db, sync_files, get_allowed_list, ACTIVE_URL_FILE
     HAS_MONITOR = True
 except ImportError:
     HAS_MONITOR = False
+
+def get_active_url():
+    """현재 활성화된 이벤트 URL을 가져옵니다."""
+    if not HAS_MONITOR: return None
+    try:
+        if os.path.exists(ACTIVE_URL_FILE):
+            with open(ACTIVE_URL_FILE, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+    except: pass
+    
+    # 파일이 없으면 기존처럼 DB에서 가장 최근 업데이트된 URL 가져오기
+    try:
+        urls = db.get_all_urls()
+        return urls[0] if urls else None
+    except:
+        return None
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
@@ -110,9 +126,9 @@ def guest_view():
     winners = None
     if HAS_MONITOR:
         try:
-            urls = db.get_all_urls()
-            if urls:
-                _, _, _, title, prizes, winners, _ = db.get_data(urls[0])
+            active_url = get_active_url()
+            if active_url:
+                _, _, _, title, prizes, winners, _ = db.get_data(active_url)
         except: pass
 
     return render_template('index.html',
@@ -181,9 +197,9 @@ def index():
     winners = None
     if HAS_MONITOR:
         try:
-            urls = db.get_all_urls()
-            if urls:
-                _, _, _, title, prizes, winners, _ = db.get_data(urls[0])
+            active_url = get_active_url()
+            if active_url:
+                _, _, _, title, prizes, winners, _ = db.get_data(active_url)
         except: pass
 
     if current_user.is_authenticated:
@@ -351,12 +367,15 @@ def handle_confirm_winner():
         
         if HAS_MONITOR:
             try:
-                # 현재 활성 URL 가져오기 (단일 이벤트 가정)
-                urls = db.get_all_urls()
-                if urls:
-                    active_url = urls[0]
+                # 현재 활성 URL 가져오기
+                active_url = get_active_url()
+                if active_url:
                     # 1. 현재 데이터 모두 가져오기 (덮어쓰기 방지)
-                    participants, _, last_id, title, prizes, current_winners_str, allow_duplicates = db.get_data(active_url)
+                    participants, all_commenters, last_id, title, prizes, current_winners_str, allow_duplicates = db.get_data(active_url)
+                    
+                    if not participants:
+                        print(f"WARNING: No participants found for {active_url}. Skipping confirmation to prevent data loss.")
+                        return
                     
                     current_winners = []
                     if current_winners_str:

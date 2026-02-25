@@ -142,6 +142,18 @@ class CommentDatabase:
             conn.commit()
             print(f"DEBUG: [DB] Saved {len(participants_dict) if participants_dict else 0} participants and {len(all_commenters) if all_commenters else 0} commenters for URL: {url}")
 
+    def update_timestamp(self, url: str):
+        """특정 URL의 updated_at 필드를 현재 시간으로 갱신합니다."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE posts 
+                SET updated_at = ? 
+                WHERE url = ?
+            ''', (datetime.now(), url))
+            conn.commit()
+            print(f"DEBUG: [DB] Updated timestamp for URL: {url}")
+
     def get_data(self, url: str) -> Tuple[Dict[str, int], List[str], str, str, str, str, bool]:
         """특정 URL의 저장된 데이터 조회"""
         participants = {}

@@ -15,6 +15,16 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARTICIPANTS_FILE = os.path.join(BASE_DIR, 'participants.txt')
 LAST_COMMENT_FILE = os.path.join(BASE_DIR, 'last_comment_id.txt')
 ALLOWED_LIST_FILE = os.path.join(BASE_DIR, 'allowed_list.txt')
+ACTIVE_URL_FILE = os.path.join(BASE_DIR, 'active_event.txt')
+
+def set_active_url(url):
+    """현재 관리 중인 URL을 파일에 저장합니다."""
+    try:
+        with open(ACTIVE_URL_FILE, 'w', encoding='utf-8') as f:
+            f.write(url.strip())
+        print(f"DEBUG: Active URL set to: {url}")
+    except Exception as e:
+        print(f"ERROR: Failed to set active URL: {e}")
 
 def get_allowed_list():
     """명단을 {이름: 티켓수} 사전 형식으로 파싱합니다."""
@@ -234,6 +244,10 @@ def fetch_comments_route():
         
         # [추가] 명단 동기화 (화이트리스트 업데이트 반영)
         existing_participants, _ = sync_participants_with_whitelist(url, existing_participants, all_commenters)
+        
+        # [추가] 활성 URL 설정 및 타임스탬프 갱신
+        set_active_url(url)
+        db.update_timestamp(url)
         
         # DB 저장 및 파일 동기화 (최종 결과만)
         db.save_data(url, existing_participants, current_state['last_id'], list(all_commenters))
@@ -468,6 +482,10 @@ def load_comments():
 
         # [추가] 명단 동기화 (화이트리스트 업데이트 반영)
         participants_dict, _ = sync_participants_with_whitelist(url, participants_dict, all_commenter_list)
+        
+        # [추가] 활성 URL 설정 및 타임스탬프 갱신
+        set_active_url(url)
+        db.update_timestamp(url)
         
         # 로드된 데이터로 메모리 상태 복구/생성
         event_id = str(int(time.time()))

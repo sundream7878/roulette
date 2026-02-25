@@ -12,7 +12,7 @@ from flask_socketio import SocketIO
 
 # [추가] 로컬 전용 모니터링 블루프린트 임포트
 try:
-    from monitor_view import monitor_bp, db, sync_files
+    from monitor_view import monitor_bp, db, sync_files, get_allowed_list
     HAS_MONITOR = True
 except ImportError:
     HAS_MONITOR = False
@@ -389,18 +389,25 @@ def handle_confirm_winner():
                     
                     # [추가] 참가자 명단 변경 사항 브로드캐스트 (중복 비허용 시 제거된 명단 전송 필요)
                     if not allow_duplicates:
-                         # 룰렛용 명단
+                        # 룰렛용 명단
                         p_list_for_roulette = [(name, int(count)) for name, count in participants.items()]
                         p_list_for_roulette.sort(key=lambda x: x[0])
                         
-                        # 전체 명단 (DB에서 다시 가져오거나 현재 메모리 기반으로 재구성 - 여기서는 간단히 participants 기반으로)
-                        # 정확한 전체 명단(all_commenters)은 DB에서 fetch하지 않았으므로 생략하거나 빈 리스트로 보냄(모니터링 뷰는 refresh로 해결)
-                        # 중요: 룰렛 페이지의 participants 갱신이 핵심
+                        # [중요] 전체 활동 목록(full_commenter_list)을 DB에서 가져와서 배지 정보 추가
+                        allowed_list = get_allowed_list()
+                        full_commenter_data = []
+                        for author in all_commenters:
+                            is_whitelisted = author in allowed_list
+                            full_commenter_data.append({
+                                'name': author,
+                                'is_whitelisted': is_whitelisted,
+                                'tickets': allowed_list.get(author, 1) if is_whitelisted else 0
+                            })
                         
                         socketio.emit('update_participants', {
                             'participants': p_list_for_roulette,
-                            'full_commenter_list': [], # 룰렛 페이지에선 안씀
-                            'total_comments': sum(participants.values()),
+                            'full_commenter_list': full_commenter_data,
+                            'total_comments': len(all_commenters),
                             'event_id': str(int(time.time()))
                         }, namespace='/')
 

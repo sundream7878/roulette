@@ -1104,7 +1104,10 @@
         socket.on('update_participants', (data) => {
             console.log('Socket Update:', data);
             currentParticipants = data.participants || [];
-            currentFullFeed = data.full_commenter_list || [];
+            // [수정] 전체 활동 내역이 빈 값으로 올 경우 기존 데이터를 유지하여 화면 상실 방지
+            if (data.full_commenter_list && data.full_commenter_list.length > 0) {
+                currentFullFeed = data.full_commenter_list;
+            }
             updateStats(data.total_comments, currentParticipants.length);
             updateListUI();
             if (isMonitoring) showStatus('실시간 수집 중... (' + new Date().toLocaleTimeString() + ')', 'success');

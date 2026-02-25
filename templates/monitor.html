@@ -1,145 +1,1120 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
     <meta charset="UTF-8">
     <title>댓글 모니터링 (로컬전용)</title>
+    <!-- Modern Typography -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap"
+        rel="stylesheet">
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f5f5f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; }
-        input[type="text"] { width: 100%; padding: 12px; margin-bottom: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 14px; }
-        .button-group { display: flex; gap: 10px; margin-bottom: 20px; }
-        button { padding: 12px 24px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; font-size: 14px; }
-        .btn-primary { background: #28a745; color: white; flex: 1; }
-        .btn-primary:hover { background: #218838; }
-        .btn-secondary { background: #17a2b8; color: white; }
-        .btn-secondary:hover { background: #138496; }
-        .btn-danger { background: #dc3545; color: white; }
-        .btn-danger:hover { background: #c82333; }
-        #status { margin-top: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #f8f9fa; }
-        #participantList { list-style: none; padding: 0; margin-top: 20px; }
-        #participantList li { padding: 10px; margin: 5px 0; background: #e9ecef; border-radius: 5px; }
-        .stats { display: flex; gap: 20px; margin-top: 20px; }
-        .stat-box { flex: 1; padding: 15px; background: #007bff; color: white; border-radius: 5px; text-align: center; }
-        .stat-box h3 { margin: 0; font-size: 32px; }
-        .stat-box p { margin: 5px 0 0 0; font-size: 14px; }
-        label { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
-        input[type="checkbox"] { width: 20px; height: 20px; }
-        input[type="number"] { width: 80px; padding: 5px; border: 2px solid #ddd; border-radius: 5px; }
+        :root {
+            --primary-color: #2ea44f;
+            --primary-hover: #2c974b;
+            --secondary-color: #0366d6;
+            --danger-color: #d73a49;
+            --bg-color: #f6f8fa;
+            --card-bg: #ffffff;
+            --text-main: #24292e;
+            --text-muted: #586069;
+            --border-color: #e1e4e8;
+            --input-focus: #0366d644;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+            --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            transition: all 0.2s ease;
+        }
+
+        body {
+            font-family: 'Inter', 'Noto Sans KR', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 40px 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: var(--shadow-md);
+            border: 1px solid var(--border-color);
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0 0 8px 0;
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* Input Area */
+        .input-section {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border-color);
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 15px;
+            background: var(--bg-color);
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--secondary-color);
+            background: #fff;
+            box-shadow: 0 0 0 3px var(--input-focus);
+        }
+
+        .settings-section {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            border: 1px solid #eef2f7;
+        }
+
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+            margin-bottom: 0;
+        }
+
+        .settings-content {
+            display: none;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #f1f4f8;
+        }
+
+        .settings-content.show {
+            display: block;
+        }
+
+        .settings-item {
+            margin-bottom: 15px;
+        }
+
+        .settings-item label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: var(--text-dark);
+        }
+
+        input[type="text"].settings-input,
+        textarea.settings-input {
+            width: 100%;
+            padding: 10px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        input[type="text"].settings-input:focus,
+        textarea.settings-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+            outline: none;
+        }
+
+        .refresh-control {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 15px;
+            font-size: 14px;
+            color: var(--text-muted);
+            user-select: none;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        input[type="number"] {
+            width: 60px;
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        /* Buttons Layout */
+        .action-groups {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            gap: 8px;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .btn-main {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-main:hover {
+            background: var(--primary-hover);
+        }
+
+        .btn-blue {
+            background: var(--secondary-color);
+            color: white;
+        }
+
+        .btn-blue:hover {
+            opacity: 0.9;
+        }
+
+        .btn-outline {
+            background: white;
+            border-color: var(--border-color);
+            color: var(--text-main);
+        }
+
+        .btn-outline:hover {
+            background: var(--bg-color);
+        }
+
+        .btn-danger {
+            background: white;
+            border-color: var(--border-color);
+            color: var(--danger-color);
+        }
+
+        .btn-danger:hover {
+            background: #fff5f5;
+            border-color: var(--danger-color);
+        }
+
+        /* Whitelist Section */
+        .whitelist-section {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            border: 1px solid #ffcc00;
+            background-color: #fffdec;
+        }
+
+        .whitelist-section textarea {
+            width: 100%;
+            height: 120px;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 13px;
+            resize: vertical;
+            margin-bottom: 10px;
+        }
+
+        .whitelist-section h4 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: #856404;
+        }
+
+        /* Status Area */
+        #status {
+            padding: 12px 20px;
+            background: #f1f8ff;
+            border: 1px solid #c8e1ff;
+            border-radius: 6px;
+            color: #0366d6;
+            font-size: 13px;
+            font-family: monospace;
+            margin-bottom: 30px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+        }
+
+        /* Stats Blocks */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 24px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-card.active {
+            border-bottom: 4px solid var(--primary-color);
+        }
+
+        .stat-card h3 {
+            margin: 0;
+            font-size: 36px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .stat-card p {
+            margin: 4px 0 0 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* List Styling */
+        #participantList {
+            list-style: none;
+            padding: 0;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        #participantList li {
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        #participantList li:last-child {
+            border-bottom: none;
+        }
+
+        #participantList li:nth-child(even) {
+            background-color: var(--bg-color);
+        }
+
+        #participantList li:hover {
+            background-color: #f0f7ff;
+        }
+
+        /* Badges */
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .badge-success {
+            background-color: #e6ffed;
+            color: #2ea44f;
+            border: 1px solid #acf2bd;
+        }
+
+        .badge-gray {
+            background-color: #f6f8fa;
+            color: #6a737d;
+            border: 1px solid #d1d5da;
+        }
+
+        /* Scrollbar */
+        #participantList::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #participantList::-webkit-scrollbar-track {
+            background: var(--bg-color);
+        }
+
+        #participantList::-webkit-scrollbar-thumb {
+            background: #d1d5da;
+            border-radius: 4px;
+        }
+
+        #participantList::-webkit-scrollbar-thumb:hover {
+            background: #959da5;
+        }
+
+        /* Overlay Modal */
+        #eventOverlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            width: 90%;
+            max-width: 600px;
+            border-radius: 12px;
+            box-shadow: var(--shadow-md);
+            display: flex;
+            flex-direction: column;
+            max-height: 80vh;
+        }
+
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--text-muted);
+        }
+
+        #eventList {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow-y: auto;
+        }
+
+        .event-item {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            font-size: 14px;
+            word-break: break-all;
+        }
+
+        .event-item:hover {
+            background: #f0f7ff;
+            color: var(--secondary-color);
+        }
+
+        .event-item:last-child {
+            border-bottom: none;
+        }
+
+        /* New styles for stats and participant list */
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .button-group button {
+            flex: 1;
+        }
+
+        .stats-container {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 30px;
+            margin-bottom: 30px;
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-box {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 3em;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            color: #777;
+            margin-top: 5px;
+        }
+
+        .participants-list {
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 30px;
+        }
+
+        .list-header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        #list-content {
+            max-height: 400px;
+            overflow-y: auto;
+            background-color: white;
+        }
+
+        #list-content div {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #list-content div:last-child {
+            border-bottom: none;
+        }
+
+        #list-content div:nth-child(even) {
+            background-color: #fcfcfc;
+        }
+
+        .participant-name {
+            font-weight: 500;
+            color: #333;
+        }
+
+        .participant-status {
+            font-size: 0.8em;
+            padding: 5px 10px;
+            border-radius: 5px;
+            background-color: #e0e0e0;
+            color: #555;
+        }
+
+        /* Tab Navigation Styles */
+        .tab-nav {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .tab-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            background: none;
+            cursor: pointer;
+            color: var(--text-muted);
+            border-radius: 8px 8px 0 0;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .tab-button:hover {
+            color: var(--primary-color);
+            background: rgba(46, 164, 79, 0.05);
+        }
+
+        .tab-button.active {
+            color: var(--primary-color);
+        }
+
+        .tab-button.active::after {
+            content: '';
+            position: absolute;
+            bottom: -12px;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background-color: var(--primary-color);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Form Controls */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .switch-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Toggle Switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: var(--primary-color);
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(26px);
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
-        <h1>🎯 Naver 카페 댓글 모니터링</h1>
-        <p style="color: #666;">로컬 전용 페이지 (배포 제외)</p>
-        
-        <input type="text" id="cafeUrl" placeholder="네이버 카페 게시글 URL을 입력하세요">
-        
-        <label>
-            <input type="checkbox" id="autoRefresh">
-            실시간 자동 갱신 (
-            <input type="number" id="refreshInterval" value="30" min="10" max="300">
-            초마다)
-        </label>
-        
-        <div class="button-group">
-            <button class="btn-primary" onclick="startMonitoring()">🔍 참가자 수집</button>
-            <button class="btn-secondary" onclick="clearList()">🗑️ 목록 초기화</button>
+        <header>
+            <h1>Roulette Admin Page</h1>
+            <p class="subtitle">참여자 수집 및 이벤트 설정을 관리합니다.</p>
+        </header>
+
+        <div class="tab-nav">
+            <button class="tab-button active" onclick="openTab(event, 'tab-collection')">참여자 수집</button>
+            <button class="tab-button" onclick="openTab(event, 'tab-settings')">이벤트 설정</button>
         </div>
-        
-        <div id="status">상태: 대기 중...</div>
-        
-        <div class="stats">
-            <div class="stat-box">
-                <h3 id="participantCount">0</h3>
-                <p>총 참가자</p>
+
+        <!-- 탭 1: 참여자 수집 -->
+        <div id="tab-collection" class="tab-content active">
+            <div class="input-section">
+                <div class="form-group">
+                    <label for="url">네이버 카페 게시글 URL</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="url" placeholder="https://cafe.naver.com/..." value="{{ current_url }}"
+                            style="flex: 1;">
+                        <button onclick="toggleHistory()" class="btn-blue"
+                            style="width: auto; padding: 0 15px; background-color: #607D8B;">히스토리</button>
+                    </div>
+                    <div id="history-container"
+                        style="display: none; margin-top: 8px; border: 1px solid #ddd; border-radius: 8px; background: #fff; max-height: 200px; overflow-y: auto; padding: 10px;">
+                        <div
+                            style="font-size: 11px; color: #666; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px;">
+                            최근 관리된 이벤트 (클릭하여 선택)</div>
+                        <div id="history-list"></div>
+                    </div>
+                </div>
+
+                <div class="btn-grid">
+                    <button onclick="startMonitoring()" id="startBtn" class="btn-main">수집 시작</button>
+                    <button onclick="stopMonitoringUI()" id="stopBtn" disabled class="btn-danger">중지</button>
+                </div>
+
+                <div class="button-group">
+                    <button onclick="loadData()" class="btn-blue" style="background-color: #2196F3;">데이터 불러오기</button>
+                    <button onclick="newEvent()" class="btn-outline"
+                        style="background-color: #FF9800; color: white; border: none;">새 이벤트 시작</button>
+                </div>
+
+                <div style="margin-top: 10px;">
+                    <button onclick="deleteEvent()" class="btn-outline"
+                        style="width: 100%; color: var(--danger-color);">현재 이벤트 삭제</button>
+                </div>
             </div>
-            <div class="stat-box" style="background: #28a745;">
-                <h3 id="commentCount">0</h3>
-                <p>총 댓글 수</p>
+
+            <!-- 참여 명단 관리 (화이트리스트) -->
+            <div class="whitelist-section">
+                <h4>사전 참여 명단 관리 (이름 또는 이름,티켓수)</h4>
+                <textarea id="whitelist-input" placeholder="홍길동&#10;임꺽정,2&#10;이순신,5"></textarea>
+                <button onclick="saveAllowedList()" class="btn-blue"
+                    style="width: 100%; height: 40px; background-color: #856404; border: none; color: white;">명단
+                    저장하기</button>
+            </div>
+
+            <div id="status">대기 중...</div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3 id="total-count">0</h3>
+                    <p>총 댓글 작성자</p>
+                </div>
+                <div class="stat-card active">
+                    <h3 id="participant-count">0</h3>
+                    <p>확정 참여자</p>
+                </div>
+            </div>
+
+            <div class="participants-list">
+                <div class="list-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>참여자 목록 및 활동</span>
+                    <div class="view-toggle"
+                        style="background: #f0f0f0; padding: 4px; border-radius: 20px; display: flex; gap: 4px;">
+                        <button onclick="setViewMode('confirmed')" id="mode-confirmed" class="active-mode"
+                            style="border: none; padding: 4px 12px; border-radius: 16px; font-size: 11px; cursor: pointer;">확정</button>
+                        <button onclick="setViewMode('all')" id="mode-all"
+                            style="border: none; background: transparent; padding: 4px 12px; border-radius: 16px; font-size: 11px; cursor: pointer; color: #666;">전체
+                            활동</button>
+                    </div>
+                </div>
+                <div id="list-content">
+                    <div style="justify-content: center; color: #999;">URL을 입력하고 수집을 시작해주세요.</div>
+                </div>
             </div>
         </div>
-        
-        <ul id="participantList"></ul>
+
+        <!-- 탭 2: 이벤트 설정 -->
+        <div id="tab-settings" class="tab-content">
+            <div class="settings-section">
+                <div class="form-group">
+                    <label for="event-title">이벤트 제목 (룰렛 상단 표시)</label>
+                    <input type="text" id="event-title" class="settings-input" placeholder="예: 썬드림 럭키드로우 이벤트">
+                </div>
+
+                <div class="form-group">
+                    <label for="event-prizes">이벤트 항목 / 사은품 목록 (한 줄에 하나씩 입력)</label>
+                    <textarea id="event-prizes" class="settings-input" rows="10"
+                        placeholder="1등: 치킨 기프티콘&#10;2등: 스타벅스 쿠폰&#10;3등: 편의점 상품권"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <div class="switch-container">
+                        <label for="allow-duplicates" style="margin:0; cursor:pointer;">중복 당첨 허용</label>
+                        <label class="switch">
+                            <input type="checkbox" id="allow-duplicates" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <p style="font-size: 0.9em; color: #666; margin-top: 10px; line-height: 1.4;">
+                        • <strong>허용 안 함:</strong> 당첨된 사람은 룰렛에서 즉시 제거되어 다시 당첨될 수 없습니다.<br>
+                        • <strong>허용함:</strong> 당첨되어도 룰렛에 남아있어 중복 당첨이 가능합니다.
+                    </p>
+                </div>
+
+                <button onclick="saveEventSettings()" class="btn-blue"
+                    style="width: 100%; padding: 15px; font-size: 16px;">설정 적용하기</button>
+            </div>
+        </div>
     </div>
 
+    <style>
+        .active-mode {
+            background: #fff !important;
+            color: var(--primary-color) !important;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            font-weight: bold;
+        }
+
+        .badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-left: 6px;
+        }
+
+        .badge-confirmed {
+            background: #e6ffed;
+            color: #22863a;
+            border: 1px solid #22863a44;
+        }
+
+        .badge-waiting {
+            background: #fff8c5;
+            color: #735c0f;
+            border: 1px solid #735c0f33;
+        }
+
+        .participant-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #f0f0f0;
+            padding: 10px 0;
+        }
+
+        .participant-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script>
-        let autoRefreshTimer = null;
-        let lastUrl = '';
+        const socket = io();
+        let isMonitoring = false;
+        let viewMode = 'confirmed'; // 'confirmed' or 'all'
+        let currentParticipants = [];
+        let currentFullFeed = [];
 
-        async function startMonitoring(isAuto = false) {
-            const url = document.getElementById('cafeUrl').value;
-            const statusDiv = document.getElementById('status');
-            const listUl = document.getElementById('participantList');
-
-            if (!url) {
-                alert('URL을 입력해주세요.');
+        function toggleHistory() {
+            const container = document.getElementById('history-container');
+            if (container.style.display === 'block') {
+                container.style.display = 'none';
                 return;
             }
 
-            lastUrl = url;
-            if (!isAuto) listUl.innerHTML = ''; // 수동 실행시에만 목록 초기화
-            statusDiv.innerText = '댓글 수집 중...';
-            
-            try {
-                const response = await fetch('/api/fetch_comments', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: url })
-                });
-                
-                const result = await response.json();
-                
-                if (result.error) {
-                    statusDiv.innerText = '❌ 에러: ' + result.error;
-                } else {
-                    const now = new Date().toLocaleTimeString('ko-KR');
-                    statusDiv.innerText = `✅ ${result.message} (${now})`;
-                    
-                    // 통계 업데이트
-                    document.getElementById('participantCount').innerText = result.participants.length;
-                    document.getElementById('commentCount').innerText = result.total_comments || 0;
-                    
-                    // 참가자 목록 업데이트
-                    if (!isAuto) {
-                        result.participants.forEach(p => {
-                            const li = document.createElement('li');
-                            li.innerText = p;
-                            listUl.appendChild(li);
+            fetch('/api/get_history')
+                .then(r => r.json())
+                .then(data => {
+                    const list = document.getElementById('history-list');
+                    if (!data.history || data.history.length === 0) {
+                        list.innerHTML = '<div style="font-size: 12px; color: #999; text-align: center; padding: 10px;">저장된 기록이 없습니다.</div>';
+                    } else {
+                        let html = '';
+                        data.history.forEach(item => {
+                            html += `
+                            <div onclick="selectHistory('${item.url}')" style="padding: 8px; border-bottom: 1px solid #f9f9f9; cursor: pointer; font-size: 13px; font-weight: 500; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                📄 ${item.title}
+                            </div>`;
                         });
+                        list.innerHTML = html;
                     }
-                }
-            } catch (e) {
-                statusDiv.innerText = '❌ 통신 에러가 발생했습니다: ' + e.message;
+                    container.style.display = 'block';
+                })
+                .catch(err => alert('히스토리를 불러올 수 없습니다.'));
+        }
+
+        function selectHistory(url) {
+            document.getElementById('url').value = url;
+            document.getElementById('history-container').style.display = 'none';
+            loadData();
+        }
+
+        function setViewMode(mode) {
+            viewMode = mode;
+            document.getElementById('mode-confirmed').className = mode === 'confirmed' ? 'active-mode' : '';
+            document.getElementById('mode-confirmed').style.background = mode === 'confirmed' ? '#fff' : 'transparent';
+            document.getElementById('mode-all').className = mode === 'all' ? 'active-mode' : '';
+            document.getElementById('mode-all').style.background = mode === 'all' ? '#fff' : 'transparent';
+
+            updateListUI();
+        }
+
+        // Tab switching function
+        function openTab(evt, tabName) {
+            const contents = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < contents.length; i++) {
+                contents[i].classList.remove("active");
             }
+
+            const buttons = document.getElementsByClassName("tab-button");
+            for (let i = 0; i < buttons.length; i++) {
+                buttons[i].classList.remove("active");
+            }
+
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
         }
 
-        function clearList() {
-            document.getElementById('participantList').innerHTML = '';
-            document.getElementById('participantCount').innerText = '0';
-            document.getElementById('commentCount').innerText = '0';
-            document.getElementById('status').innerText = '상태: 목록이 초기화되었습니다.';
+        function startMonitoring() {
+            const urlInput = document.getElementById('url');
+            const url = urlInput.value.trim();
+            if (!url) {
+                showStatus('URL을 입력해주세요.', 'error');
+                return;
+            }
+
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            urlInput.disabled = true;
+            isMonitoring = true;
+            showStatus('수집 시작 중...', 'info');
+
+            fetch('/api/fetch_comments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url, incremental: true })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showStatus('수집 시작 실패: ' + data.error, 'error');
+                        stopMonitoringUI();
+                    } else {
+                        showStatus('수집이 시작되었습니다. (실시간 모니터링 중)', 'success');
+                        // 첫 데이터 즉시 반영
+                        currentParticipants = data.participants_raw || [];
+                        currentFullFeed = data.full_commenter_list || [];
+                        updateStats(data.total_comments, currentParticipants.length);
+                        updateListUI();
+                    }
+                })
+                .catch(error => {
+                    showStatus('오류 발생: ' + error.message, 'error');
+                    stopMonitoringUI();
+                });
         }
 
-        // 자동 갱신 체크박스 이벤트
-        document.getElementById('autoRefresh').addEventListener('change', function(e) {
-            if (e.target.checked) {
-                if (!lastUrl) {
-                    alert('먼저 URL을 입력하고 수집을 시작해주세요.');
-                    e.target.checked = false;
+        function stopMonitoringUI() {
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('url').disabled = false;
+            isMonitoring = false;
+            showStatus('수집이 중지되었습니다.', 'info');
+        }
+
+        function newEvent() {
+            if (!confirm('새 이벤트를 시작하시겠습니까? 기존 데이터는 유지되지만 화면은 초기화됩니다.')) return;
+            document.getElementById('url').value = '';
+            document.getElementById('list-content').innerHTML = '<div style="justify-content: center; color: #999;">URL을 입력하고 수집을 시작해주세요.</div>';
+            updateStats(0, 0);
+            currentParticipants = [];
+            currentFullFeed = [];
+            stopMonitoringUI();
+        }
+
+        function deleteEvent() {
+            const url = document.getElementById('url').value.trim();
+            if (!url) { showStatus('삭제할 이벤트의 URL이 없습니다.', 'error'); return; }
+            if (!confirm('정말로 모든 데이터를 삭제하시겠습니까?')) return;
+
+            fetch('/api/delete_event', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.error) {
+                        showStatus('데이터가 삭제되었습니다.', 'success');
+                        newEvent();
+                    } else {
+                        showStatus('삭제 실패: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => showStatus('삭제 중 오류: ' + error, 'error'));
+        }
+
+        function showStatus(message, type) {
+            const el = document.getElementById('status');
+            el.style.display = 'flex';
+            el.className = type;
+            el.innerText = message;
+        }
+
+        function updateStats(total, participants) {
+            document.getElementById('total-count').innerText = total || '0';
+            document.getElementById('participant-count').innerText = participants || '0';
+        }
+
+        function updateListUI() {
+            const content = document.getElementById('list-content');
+
+            if (viewMode === 'confirmed') {
+                if (!currentParticipants || currentParticipants.length === 0) {
+                    content.innerHTML = '<div style="justify-content: center; color: #999; padding: 20px;">확정된 참여자가 없습니다. <br><small>(사전 명단에 포함된 작성자만 표시됩니다)</small></div>';
                     return;
                 }
-                const interval = parseInt(document.getElementById('refreshInterval').value) * 1000;
-                autoRefreshTimer = setInterval(() => startMonitoring(true), interval);
-                document.getElementById('status').innerText = `🔄 실시간 모니터링 활성화 (${interval/1000}초마다 갱신)`;
+                currentParticipants.sort((a, b) => a[0].localeCompare(b[0]));
+                let html = '';
+                currentParticipants.forEach(p => {
+                    html += `
+                    <div class="participant-item">
+                        <span class="participant-name">${p[0]} <span class="badge badge-confirmed">확정</span></span>
+                        <span class="participant-status whitelisted">티켓: ${p[1]}장</span>
+                    </div>`;
+                });
+                content.innerHTML = html;
             } else {
-                if (autoRefreshTimer) {
-                    clearInterval(autoRefreshTimer);
-                    autoRefreshTimer = null;
-                    document.getElementById('status').innerText = '⏸️ 실시간 모니터링 중지';
+                if (!currentFullFeed || currentFullFeed.length === 0) {
+                    content.innerHTML = '<div style="justify-content: center; color: #999; padding: 20px;">수집된 활동이 없습니다.</div>';
+                    return;
                 }
+                let html = '';
+                currentFullFeed.forEach(f => {
+                    const statusBadge = f.is_whitelisted ? '<span class="badge badge-confirmed">확정</span>' : '<span class="badge badge-waiting">대기(명단없음)</span>';
+                    html += `
+                    <div class="participant-item">
+                        <span class="participant-name">${f.name} ${statusBadge}</span>
+                        <span style="font-size: 11px; color: #999;">${f.is_whitelisted ? '티켓: ' + f.tickets + '장' : '수집됨'}</span>
+                    </div>`;
+                });
+                content.innerHTML = html;
             }
+        }
+
+        function saveEventSettings() {
+            const url = document.getElementById('url').value.trim();
+            if (!url) { alert('URL이 필요합니다.'); return; }
+
+            fetch('/api/update_event_settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: url,
+                    title: document.getElementById('event-title').value,
+                    prizes: document.getElementById('event-prizes').value,
+                    allow_duplicates: document.getElementById('allow-duplicates').checked
+                })
+            })
+                .then(response => response.json())
+                .then(data => { if (!data.error) alert('저장되었습니다.'); else alert('실패: ' + data.error); })
+                .catch(err => alert('오류: ' + err));
+        }
+
+        function loadData() {
+            const url = document.getElementById('url').value.trim();
+            if (!url) return;
+
+            fetch('/api/load_comments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.error) {
+                        currentParticipants = data.participants_raw || [];
+                        currentFullFeed = data.full_commenter_list || [];
+                        updateStats(data.total_comments, currentParticipants.length);
+                        updateListUI();
+
+                        document.getElementById('event-title').value = data.event_title || '';
+                        document.getElementById('event-prizes').value = data.event_prizes || '';
+                        document.getElementById('allow-duplicates').checked = data.allow_duplicates !== false;
+                        showStatus(data.message || '데이터 로드 완료', 'success');
+                    }
+                });
+        }
+
+        function loadAllowedList() {
+            fetch('/api/get_allowed_list').then(r => r.json()).then(data => {
+                if (data.content !== undefined) document.getElementById('whitelist-input').value = data.content;
+            });
+        }
+
+        function saveAllowedList() {
+            const content = document.getElementById('whitelist-input').value;
+            fetch('/api/save_allowed_list', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: content })
+            })
+                .then(r => r.json()).then(data => { if (!data.error) alert('저장되었습니다.'); });
+        }
+
+        socket.on('update_participants', (data) => {
+            console.log('Socket Update:', data);
+            currentParticipants = data.participants || [];
+            currentFullFeed = data.full_commenter_list || [];
+            updateStats(data.total_comments, currentParticipants.length);
+            updateListUI();
+            if (isMonitoring) showStatus('실시간 수집 중... (' + new Date().toLocaleTimeString() + ')', 'success');
         });
+
+        window.onload = () => {
+            loadAllowedList();
+            if (document.getElementById('url').value) loadData();
+        };
     </script>
 </body>
+
 </html>

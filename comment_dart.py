@@ -12,7 +12,7 @@ from flask_socketio import SocketIO
 
 # [추가] 로컬 전용 모니터링 블루프린트 임포트
 try:
-    from monitor_view import monitor_bp
+    from monitor_view import monitor_bp, db, sync_files
     HAS_MONITOR = True
 except ImportError:
     HAS_MONITOR = False
@@ -95,11 +95,34 @@ def logout():
 
 @app.route('/guest')
 def guest_view():
+    p_data = load_participants()
+    p_list = p_data if p_data else []
+    
+    # colors 리스트 생성
+    p_colors = []
+    for i in range(len(p_list)):
+        h = i * 360 / len(p_list) if p_list else 0
+        p_colors.append(f"hsl({h}, 70%, 50%)")
+        
+    # 가장 최근에 업데이트된 글 정보 가져오기 (가중치/제목/사은품/당첨자/중복허용 보관용)
+    title = None
+    prizes = None
+    winners = None
+    if HAS_MONITOR:
+        try:
+            urls = db.get_all_urls()
+            if urls:
+                _, _, _, title, prizes, winners, _ = db.get_data(urls[0])
+        except: pass
+
     return render_template('index.html',
-                           participants=participants,
-                           colors=colors,
+                           participants=p_list,
+                           colors=p_colors,
                            user=None,
-                           is_guest=True)
+                           is_guest=True,
+                           title=title,
+                           prizes=prizes,
+                           winners=winners)
     
 # ----- 참가자 로딩 함수 (가나다순 정렬 추가) -----
 def load_participants(filename="participants.txt"):
@@ -137,32 +160,41 @@ def load_participants(filename="participants.txt"):
         print("[ERROR] Failed to load participants:", e)
         return None
 
-participants = load_participants()
-if not participants:
-    print("[ERROR] Failed to load participants. Exiting...")
-    exit()
-
-# ----- colors 리스트 생성 -----
-colors = []
-for i in range(len(participants)):
-    h = i * 360 / len(participants)
-    colors.append(f"hsl({h}, 70%, 50%)")
-
-# ----- 전체 참가자 이름, 댓글 수, 총합 등 (필요 시) -----
-names = [p[0] for p in participants]
-counts = [p[1] for p in participants]
-total_count = sum(counts)
+# 전역 변수 제거 (함수 내에서 동적 로드)
+# participants = load_participants()
+# ...
 
 @app.route('/')
 def index():
+    p_data = load_participants()
+    p_list = p_data if p_data else []
+    
+    # colors 리스트 생성
+    p_colors = []
+    for i in range(len(p_list)):
+        h = i * 360 / len(p_list) if p_list else 0
+        p_colors.append(f"hsl({h}, 70%, 50%)")
+        
+    # 가장 최근에 업데이트된 글 정보 가져오기
+    title = None
+    prizes = None
+    winners = None
+    if HAS_MONITOR:
+        try:
+            urls = db.get_all_urls()
+            if urls:
+                _, _, _, title, prizes, winners, _ = db.get_data(urls[0])
+        except: pass
+
     if current_user.is_authenticated:
-        # 로그인한 사용자는 바로 게임 화면으로
         return render_template('index.html',
-                             participants=participants,
-                             colors=colors,
-                             user=current_user)
+                             participants=p_list,
+                             colors=p_colors,
+                             user=current_user,
+                             title=title,
+                             prizes=prizes,
+                             winners=winners)
     else:
-        # 로그인하지 않은 사용자는 로그인 페이지로
         return render_template('welcome.html')
 
 # ----- 회전 게임 로직 -----
@@ -240,8 +272,12 @@ def handle_start_rotation(data):
     
     print(f"DEBUG: 최종 회전 각도: {final_angle:.2f}°, 상대 각도: {relative_angle:.2f}°")
     
+    # 현재 참가자 데이터 로드
+    p_data = load_participants()
+    p_list = p_data if p_data else []
+    
     # 정확한 당첨자 계산 (화살표가 가리키는 섹터의 참가자)
-    winner = calculate_winner_at_angle(relative_angle)
+    winner = calculate_winner_at_angle(relative_angle, p_list)
     game['final_winner'] = winner
     
     # 게임 상태 업데이트
@@ -311,6 +347,65 @@ def handle_confirm_winner():
     if winner:
         print(f"DEBUG: 확정된 당첨자: {winner}")
         
+        print(f"DEBUG: 당첨자 확정: {winner} (현재 active URL에 저장 시도)")
+        
+        if HAS_MONITOR:
+            try:
+                # 현재 활성 URL 가져오기 (단일 이벤트 가정)
+                urls = db.get_all_urls()
+                if urls:
+                    active_url = urls[0]
+                    # 1. 현재 데이터 모두 가져오기 (덮어쓰기 방지)
+                    participants, _, last_id, title, prizes, current_winners_str, allow_duplicates = db.get_data(active_url)
+                    
+                    current_winners = []
+                    if current_winners_str:
+                        current_winners = current_winners_str.split(',')
+                    
+                    # 2. 새 당첨자 추가 (중복 허용 여부와 무관하게 당첨 내역에는 추가)
+                    current_winners.append(winner)
+                    new_winners_str = ','.join(current_winners)
+                    
+                    # [추가] 중복 당첨 비허용 시 참가자 명단에서 제거
+                    if not allow_duplicates:
+                        if winner in participants:
+                            del participants[winner]
+                            print(f"DEBUG: Removed winner '{winner}' from participants (No Duplicates Policy)")
+                    
+                    # 3. 저장 (기존 데이터 보존하며 winners 및 participants 업데이트)
+                    # participants_dict 업데이트 된 내용 반영
+                    db.save_data(active_url, participants, last_id if last_id else '', winners=new_winners_str)
+                    
+                    # [추가] participants.txt 파일 동기화 (룰렛 엔진용)
+                    if not allow_duplicates:
+                        sync_files(participants, last_id if last_id else '')
+                        
+                    print(f"DEBUG: Saved winners to DB: {new_winners_str}")
+                    
+                    # 4. 브로드캐스트
+                    socketio.emit('update_event_settings', {
+                        'winners': new_winners_str
+                    }, namespace='/')
+                    
+                    # [추가] 참가자 명단 변경 사항 브로드캐스트 (중복 비허용 시 제거된 명단 전송 필요)
+                    if not allow_duplicates:
+                         # 룰렛용 명단
+                        p_list_for_roulette = [(name, int(count)) for name, count in participants.items()]
+                        p_list_for_roulette.sort(key=lambda x: x[0])
+                        
+                        # 전체 명단 (DB에서 다시 가져오거나 현재 메모리 기반으로 재구성 - 여기서는 간단히 participants 기반으로)
+                        # 정확한 전체 명단(all_commenters)은 DB에서 fetch하지 않았으므로 생략하거나 빈 리스트로 보냄(모니터링 뷰는 refresh로 해결)
+                        # 중요: 룰렛 페이지의 participants 갱신이 핵심
+                        
+                        socketio.emit('update_participants', {
+                            'participants': p_list_for_roulette,
+                            'full_commenter_list': [], # 룰렛 페이지에선 안씀
+                            'total_comments': sum(participants.values()),
+                            'event_id': str(int(time.time()))
+                        }, namespace='/')
+
+            except Exception as e:
+                print(f"DEBUG: Failed to save winner to DB: {e}")
         # 당첨자 정보 전송
         socketio.emit('update_winner', {'winner': winner}, namespace='/')
         socketio.emit('play_fanfare', namespace='/')
@@ -383,11 +478,21 @@ def handle_request_game_status():
     socketio.emit('game_status', {}, namespace='/')
     print("진행 중인 게임 없음")
         
-def calculate_winner_at_angle(angle):
+def calculate_winner_at_angle(angle, participants_list):
     """
     특정 각도에서의 당첨자를 계산하는 함수
     angle: 0도는 12시 방향, 시계방향으로 증가
     """
+    if not participants_list:
+        return "N/A"
+        
+    names_local = [p[0] for p in participants_list]
+    counts_local = [p[1] for p in participants_list]
+    total_count_local = sum(counts_local)
+    
+    if total_count_local == 0:
+        return names_local[0] if names_local else "N/A"
+
     print(f"DEBUG: 당첨자 계산에 사용되는 각도: {angle:.2f}°")
     
     # 각 섹터 배치를 계산하기 위한 설정
@@ -396,8 +501,8 @@ def calculate_winner_at_angle(angle):
     # 각 참가자의 세그먼트 정보를 먼저 계산하고 저장
     segments = []
     
-    for i, (name, cnt) in enumerate(zip(names, counts)):
-        portion = cnt / total_count
+    for i, (name, cnt) in enumerate(zip(names_local, counts_local)):
+        portion = cnt / total_count_local
         sector_size = portion * 360.0
         sector_start = cumulative_angle
         sector_end = cumulative_angle + sector_size
@@ -427,12 +532,12 @@ def calculate_winner_at_angle(angle):
     
     # 경계 조건 처리 (360도/0도 근처)
     if normalized_angle >= segments[-1]['start'] or normalized_angle < segments[0]['start']:
-        print(f"DEBUG: 경계 조건 처리 - 첫 번째 참가자: {names[0]} (각도: {normalized_angle:.2f}°)")
-        return names[0]
+        print(f"DEBUG: 경계 조건 처리 - 첫 번째 참가자: {names_local[0]} (각도: {normalized_angle:.2f}°)")
+        return names_local[0]
     
     # 여기까지 오면 오류 상황
     print(f"ERROR: 당첨자를 결정할 수 없음 (각도: {normalized_angle:.2f}°)")
-    return names[0]  # 기본값으로 첫 번째 참가자 반환
+    return names_local[0]  # 기본값으로 첫 번째 참가자 반환
 
 # [수정됨] 시간 전송 로직 수정 (threading.Thread 제거하고 socketio 백그라운드 태스크 사용)
 def send_current_time():

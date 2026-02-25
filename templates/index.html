@@ -13,6 +13,13 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            width: 100vw;
+            overflow-x: hidden;
+            box-sizing: border-box;
+        }
+
+        * {
+            box-sizing: border-box;
         }
 
         #header {
@@ -218,14 +225,14 @@
 
         #result-container {
             text-align: center;
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 8px;
+            border: 1px dashed #4CAF50;
+            width: 100%;
+            min-height: 80px;
+            /* 고정 최소 높이로 떨림 방지 */
         }
 
         #winner {
@@ -447,12 +454,12 @@
                 <div class="prize-item" style="color: #999;">등록된 사은품이 없습니다.</div>
                 {% endif %}
             </div>
-        </div>
-    </div>
 
-    <div id="result-container">
-        <h2 id="winner"></h2>
-        <div id="congratulation">썬드림 이벤트 당첨을 축하드립니다!!</div>
+            <div id="result-container">
+                <h2 id="winner"></h2>
+                <div id="congratulation">썬드림 이벤트 당첨을 축하드립니다!!</div>
+            </div>
+        </div>
     </div>
 
     <!-- Chart.js + DataLabels 플러그인 + Socket.IO 클라이언트 -->
@@ -460,6 +467,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.1/dist/socket.io.min.js"></script>
     <script>
+        const currentUrl = '{{ current_url }}';
         const socket = io();
         let chart;
         let countdownInterval = null;
@@ -900,7 +908,7 @@
 
                         stopBeepLoop();
 
-                        socket.emit('confirm_winner');
+                        socket.emit('confirm_winner', { url: currentUrl });
 
                         console.log('백업 타이머로 애니메이션 종료');
                     }

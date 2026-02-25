@@ -136,9 +136,10 @@ def guest_view():
                            colors=p_colors,
                            user=None,
                            is_guest=True,
-                           title=title,
+                            title=title,
                            prizes=prizes,
-                           winners=winners)
+                           winners=winners,
+                           current_url=active_url)
     
 # ----- 참가자 로딩 함수 (가나다순 정렬 추가) -----
 def load_participants(filename="participants.txt"):
@@ -366,12 +367,13 @@ def handle_confirm_winner():
         print(f"DEBUG: 당첨자 확정: {winner} (현재 active URL에 저장 시도)")
         
         if HAS_MONITOR:
-            try:
-                # 현재 활성 URL 가져오기
-                active_url = get_active_url()
+                # 클라이언트에서 전달받은 URL 사용 (없으면 폴백으로 현재 활성 URL)
+                active_url = data.get('url') or get_active_url()
                 if active_url:
                     # 1. 현재 데이터 모두 가져오기 (덮어쓰기 방지)
                     participants, all_commenters, last_id, title, prizes, current_winners_str, allow_duplicates = db.get_data(active_url)
+                    
+                    print(f"DEBUG: Policy - Allow Duplicates: {allow_duplicates}, Participants count: {len(participants)}")
                     
                     if not participants:
                         print(f"WARNING: No participants found for {active_url}. Skipping confirmation to prevent data loss.")

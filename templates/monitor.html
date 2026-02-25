@@ -680,10 +680,86 @@
         input:checked+.slider:before {
             transform: translateX(26px);
         }
+
+        /* 히스토리 모달 스타일 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .modal-header {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .close-modal {
+            cursor: pointer;
+            font-size: 24px;
+            color: #999;
+        }
+
+        .history-item {
+            padding: 12px;
+            border-bottom: 1px solid #f5f5f5;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .history-item:hover {
+            background: f0f7ff;
+        }
+
+        .history-item .title {
+            font-weight: 500;
+            color: #333;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .history-item .url-desc {
+            font-size: 11px;
+            color: #999;
+            word-break: break-all;
+        }
     </style>
 </head>
 
 <body>
+    <!-- 히스토리 모달 추가 -->
+    <div id="history-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>불러올 게시글 선택</span>
+                <span class="close-modal" onclick="toggleHistory()">&times;</span>
+            </div>
+            <div id="history-list-modal"></div>
+        </div>
+    </div>
     <div class="container">
         <header>
             <h1>Roulette Admin Page</h1>
@@ -700,19 +776,7 @@
             <div class="input-section">
                 <div class="form-group">
                     <label for="url">네이버 카페 게시글 URL</label>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="text" id="url" placeholder="https://cafe.naver.com/..." value="{{ current_url }}"
-                            style="flex: 1;">
-                        <button onclick="toggleHistory()" class="btn-blue"
-                            style="width: auto; padding: 0 15px; background-color: #607D8B;">히스토리</button>
-                    </div>
-                    <div id="history-container"
-                        style="display: none; margin-top: 8px; border: 1px solid #ddd; border-radius: 8px; background: #fff; max-height: 200px; overflow-y: auto; padding: 10px;">
-                        <div
-                            style="font-size: 11px; color: #666; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px;">
-                            최근 관리된 이벤트 (클릭하여 선택)</div>
-                        <div id="history-list"></div>
-                    </div>
+                    <input type="text" id="url" placeholder="https://cafe.naver.com/..." value="{{ current_url }}">
                 </div>
 
                 <div class="btn-grid">
@@ -721,7 +785,8 @@
                 </div>
 
                 <div class="button-group">
-                    <button onclick="loadData()" class="btn-blue" style="background-color: #2196F3;">데이터 불러오기</button>
+                    <button onclick="toggleHistory()" class="btn-blue" style="background-color: #2196F3;">데이터
+                        불러오기</button>
                     <button onclick="newEvent()" class="btn-outline"
                         style="background-color: #FF9800; color: white; border: none;">새 이벤트 시작</button>
                 </div>
@@ -855,29 +920,30 @@
         let currentFullFeed = [];
 
         function toggleHistory() {
-            const container = document.getElementById('history-container');
-            if (container.style.display === 'block') {
-                container.style.display = 'none';
+            const modal = document.getElementById('history-modal');
+            if (modal.style.display === 'flex') {
+                modal.style.display = 'none';
                 return;
             }
 
             fetch('/api/get_history')
                 .then(r => r.json())
                 .then(data => {
-                    const list = document.getElementById('history-list');
+                    const list = document.getElementById('history-list-modal');
                     if (!data.history || data.history.length === 0) {
-                        list.innerHTML = '<div style="font-size: 12px; color: #999; text-align: center; padding: 10px;">저장된 기록이 없습니다.</div>';
+                        list.innerHTML = '<div style="text-align: center; padding: 30px; color: #999;">저장된 기록이 없습니다.</div>';
                     } else {
                         let html = '';
                         data.history.forEach(item => {
                             html += `
-                            <div onclick="selectHistory('${item.url}')" style="padding: 8px; border-bottom: 1px solid #f9f9f9; cursor: pointer; font-size: 13px; font-weight: 500; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                📄 ${item.title}
+                            <div class="history-item" onclick="selectHistory('${item.url}')">
+                                <span class="title">📄 ${item.title}</span>
+                                <span class="url-desc">${item.url}</span>
                             </div>`;
                         });
                         list.innerHTML = html;
                     }
-                    container.style.display = 'block';
+                    modal.style.display = 'flex';
                 })
                 .catch(err => alert('히스토리를 불러올 수 없습니다.'));
         }

@@ -144,7 +144,7 @@ class CommentDatabase:
 
     def update_timestamp(self, url: str):
         """특정 URL의 updated_at 필드를 현재 시간으로 갱신합니다."""
-        with self.get_connection() as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE posts 

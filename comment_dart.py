@@ -124,6 +124,7 @@ def guest_view():
     title = None
     prizes = None
     winners = None
+    active_url = None
     if HAS_MONITOR:
         try:
             active_url = get_active_url()
@@ -136,7 +137,7 @@ def guest_view():
                            colors=p_colors,
                            user=None,
                            is_guest=True,
-                            title=title,
+                           title=title,
                            prizes=prizes,
                            winners=winners,
                            current_url=active_url)
@@ -196,6 +197,7 @@ def index():
     title = None
     prizes = None
     winners = None
+    active_url = None
     if HAS_MONITOR:
         try:
             active_url = get_active_url()
@@ -210,7 +212,8 @@ def index():
                              user=current_user,
                              title=title,
                              prizes=prizes,
-                             winners=winners)
+                             winners=winners,
+                             current_url=active_url)
     else:
         return render_template('welcome.html')
 
@@ -367,6 +370,7 @@ def handle_confirm_winner():
         print(f"DEBUG: 당첨자 확정: {winner} (현재 active URL에 저장 시도)")
         
         if HAS_MONITOR:
+            try:
                 # 클라이언트에서 전달받은 URL 사용 (없으면 폴백으로 현재 활성 URL)
                 active_url = data.get('url') or get_active_url()
                 if active_url:

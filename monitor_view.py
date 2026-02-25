@@ -19,12 +19,26 @@ ACTIVE_URL_FILE = os.path.join(BASE_DIR, 'active_event.txt')
 
 def set_active_url(url):
     """현재 관리 중인 URL을 파일에 저장합니다."""
+    # 정규화하여 저장
+    from standalone_comment_monitor.parsers import parse_post_ids_from_url
+    clubid, articleid = parse_post_ids_from_url(url)
+    if clubid and articleid:
+        url = f"https://cafe.naver.com/ca-fe/web/cafes/{clubid}/articles/{articleid}"
+    
     try:
         with open(ACTIVE_URL_FILE, 'w', encoding='utf-8') as f:
             f.write(url.strip())
         print(f"DEBUG: Active URL set to: {url}")
     except Exception as e:
         print(f"ERROR: Failed to set active URL: {e}")
+
+def normalize_url(url):
+    """URL을 표준 형식으로 정규화합니다."""
+    from standalone_comment_monitor.parsers import parse_post_ids_from_url
+    clubid, articleid = parse_post_ids_from_url(url)
+    if clubid and articleid:
+        return f"https://cafe.naver.com/ca-fe/web/cafes/{clubid}/articles/{articleid}"
+    return url.strip()
 
 def get_allowed_list():
     """명단을 {이름: 티켓수} 사전 형식으로 파싱합니다."""
@@ -92,7 +106,7 @@ def monitor_page():
 @monitor_bp.route('/api/update_event_settings', methods=['POST'])
 def update_event_settings():
     data = request.json
-    url = data.get('url', '').strip()
+    url = normalize_url(data.get('url', ''))
     title = data.get('title')
     prizes = data.get('prizes')
     allow_duplicates = data.get('allow_duplicates')
@@ -128,7 +142,7 @@ def update_event_settings():
 @monitor_bp.route('/api/fetch_comments', methods=['POST'])
 def fetch_comments_route():
     data = request.json
-    url = data.get('url', '').strip()
+    url = normalize_url(data.get('url', ''))
     incremental = data.get('incremental', False)
     event_id = data.get('event_id', 'default_event') # 이벤트 격리용 키
     
@@ -136,13 +150,13 @@ def fetch_comments_route():
         return jsonify({'error': 'URL이 필요합니다.'}), 400
         
     try:
-        # URL 정규화 및 ID 추출
-        from standalone_comment_monitor.parsers import parse_post_ids_from_url
-        clubid, articleid = parse_post_ids_from_url(url)
+        # URL 정규화 및 ID 추출 (normalize_url에서 이미 처리됨)
+        # from standalone_comment_monitor.parsers import parse_post_ids_from_url
+        # clubid, articleid = parse_post_ids_from_url(url)
         
-        canonical_url = url
-        if clubid and articleid:
-            canonical_url = f"https://cafe.naver.com/ca-fe/web/cafes/{clubid}/articles/{articleid}"
+        canonical_url = url # Already normalized by normalize_url
+        # if clubid and articleid:
+        #     canonical_url = f"https://cafe.naver.com/ca-fe/web/cafes/{clubid}/articles/{articleid}"
         
         print(f"DEBUG: [API Request] Event: {event_id}, URL: {canonical_url}, incremental: {incremental}")
         
@@ -462,18 +476,13 @@ def login_naver():
 @monitor_bp.route('/api/load_comments', methods=['POST'])
 def load_comments():
     data = request.json
-    url = data.get('url', '').strip()
+    url = normalize_url(data.get('url', ''))
     
     if not url:
         return jsonify({'error': 'URL이 필요합니다.'}), 400
         
     try:
-        # URL 정규화 (중요: 다른 형식의 URL로 저장된 데이터를 찾지 못하는 문제 해결)
-        from standalone_comment_monitor.parsers import parse_post_ids_from_url
-        clubid, articleid = parse_post_ids_from_url(url)
-        if clubid and articleid:
-            url = f"https://cafe.naver.com/ca-fe/web/cafes/{clubid}/articles/{articleid}"
-        
+        url = normalize_url(url)
         print(f"DEBUG: [Load Request] URL: {url}")
         participants_dict, all_commenter_list, last_id, title, prizes, winners, allow_duplicates = db.get_data(url)
         
@@ -556,7 +565,7 @@ def load_comments():
             'event_title': title,
             'event_prizes': prizes,
             'event_winners': winners,
-            'allow_duplicates': current_state.get('allow_duplicates', True),
+            'allow_duplicates': event_states[event_id].get('allow_duplicates', True), # Use event_states for current state
             'response_id': response_id
         })
     except Exception as e:
@@ -565,7 +574,7 @@ def load_comments():
 @monitor_bp.route('/api/delete_event', methods=['POST'])
 def delete_event():
     data = request.json
-    url = data.get('url', '').strip()
+    url = normalize_url(data.get('url', ''))
     
     if not url:
         return jsonify({'error': 'URL이 필요합니다.'}), 400

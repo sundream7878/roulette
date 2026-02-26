@@ -753,6 +753,8 @@
             // 시간 업데이트 함수 정의
             function updateTime() {
                 const now = new Date();
+                const month = now.getMonth() + 1;
+                const date = now.getDate();
                 const hours = now.getHours().toString().padStart(2, '0');
                 const minutes = now.getMinutes().toString().padStart(2, '0');
                 const seconds = now.getSeconds().toString().padStart(2, '0');
@@ -761,7 +763,7 @@
                 const days = ['일', '월', '화', '수', '목', '금', '토'];
                 const dayName = days[now.getDay()];
 
-                const timeString = `${hours}:${minutes}:${seconds} (${dayName})`;
+                const timeString = `${month}월 ${date}일 (${dayName}) ${hours}:${minutes}:${seconds}`;
 
                 // 관리자 모드 시간 업데이트
                 const currentTimeElement = document.getElementById('current-time');

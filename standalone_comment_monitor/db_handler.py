@@ -2,6 +2,11 @@ import sqlite3
 import os
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
+from supabase import create_client, Client
+from dotenv import load_dotenv
+
+# .env 로드
+load_dotenv()
 
 class CommentDatabase:
     """네이버 카페 댓글 데이터를 URL별로 저장하고 관리하는 SQLite 핸들러"""
@@ -13,6 +18,18 @@ class CommentDatabase:
         
         self.db_path = db_path
         self._initialize_db()
+        
+        # Supabase 초기화
+        self.supabase_url = os.getenv("SUPABASE_URL")
+        self.supabase_key = os.getenv("SUPABASE_KEY")
+        self.supabase: Client = None
+        
+        if self.supabase_url and self.supabase_key:
+            try:
+                self.supabase = create_client(self.supabase_url, self.supabase_key)
+                print(f"DEBUG: [Supabase] Client initialized for {self.supabase_url}")
+            except Exception as e:
+                print(f"DEBUG: [Supabase Error] Initialization failed: {e}")
 
     def _get_connection(self):
         return sqlite3.connect(self.db_path)
@@ -106,13 +123,61 @@ class CommentDatabase:
             conn.commit()
             print(f"DEBUG: [DB] Cleared data for URL: {url}")
 
+            conn.commit()
+            print(f"DEBUG: [Local DB] Saved {len(participants_dict) if participants_dict else 0} participants for URL: {url}")
+
+    def _sync_to_supabase(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
+                         all_commenters: List[str] = None, title: str = None, prizes: str = None, 
+                         winners: str = None, allow_duplicates: bool = None):
+        """Supabase로 데이터 동기화"""
+        if not self.supabase: return
+
+        try:
+            # 1. posts 테이블 업데이트 (upsert)
+            post_data = {
+                "url": url,
+                "updated_at": datetime.now().isoformat()
+            }
+            if title is not None: post_data["title"] = title
+            if prizes is not None: post_data["prizes"] = prizes
+            if winners is not None: post_data["winners"] = winners
+            if allow_duplicates is not None: post_data["allow_duplicates"] = allow_duplicates
+            if last_comment_id != '': post_data["last_comment_id"] = last_comment_id
+
+            self.supabase.table("posts").upsert(post_data).execute()
+
+            # 2. participants 테이블 업데이트
+            if participants_dict is not None:
+                # 기존 데이터 삭제 후 삽입 (Supabase는 delete + insert 가 가장 확실)
+                self.supabase.table("participants").delete().eq("url", url).execute()
+                if participants_dict:
+                    p_batch = [{"url": url, "author": author, "count": count} for author, count in participants_dict.items()]
+                    self.supabase.table("participants").insert(p_batch).execute()
+
+            # 3. commenters 테이블 업데이트
+            if all_commenters:
+                # Insert or ignore (upsert with unique constraint)
+                c_batch = [{"url": url, "author": author} for author in all_commenters]
+                self.supabase.table("commenters").upsert(c_batch).execute()
+
+            print(f"DEBUG: [Supabase Sync] Successfully synced data for {url}")
+        except Exception as e:
+            print(f"DEBUG: [Supabase Sync Error] {e}")
+
     def save_data(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
                   all_commenters: List[str] = None, title: str = None, prizes: str = None, winners: str = None, allow_duplicates: bool = None):
-        """수집된 데이터를 저장하거나 업데이트"""
+        """수집된 데이터를 저장하거나 업데이트 (Local + Supabase)"""
+        # 로컬 저장
+        self._save_to_local(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
+        
+        # Supabase 동기화
+        self._sync_to_supabase(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
+
+    def _save_to_local(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
+                      all_commenters: List[str] = None, title: str = None, prizes: str = None, winners: str = None, allow_duplicates: bool = None):
+        """기존 SQLite 저장 로직 분리"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            
-            # 게시글 정보 저장/업데이트
             cursor.execute('''
                 INSERT INTO posts (url, title, prizes, winners, allow_duplicates, last_comment_id, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -125,41 +190,41 @@ class CommentDatabase:
                     updated_at = excluded.updated_at
             ''', (url, title, prizes, winners, allow_duplicates, last_comment_id, datetime.now()))
             
-            # 참여자 정보 저장 (덮어쓰기 로직: 제거된 참가자 반영)
             if participants_dict is not None and len(participants_dict) > 0:
-                # 명단이 비어있지 않은 경우에만 전체 교체 (설정 저장 시 영향을 주지 않기 위함)
                 cursor.execute("DELETE FROM participants WHERE url = ?", (url,))
                 for author, count in participants_dict.items():
-                    cursor.execute('''
-                        INSERT INTO participants (url, author, count)
-                        VALUES (?, ?, ?)
-                    ''', (url, author, count))
+                    cursor.execute('INSERT INTO participants (url, author, count) VALUES (?, ?, ?)', (url, author, count))
             elif participants_dict == {}:
-                # 명시적으로 빈 사전을 보낸 경우 (전원 제거 상황)
                 cursor.execute("DELETE FROM participants WHERE url = ?", (url,))
             
-            # 모든 작성자 정보 저장
             if all_commenters:
                 for author in all_commenters:
-                    cursor.execute('''
-                        INSERT OR IGNORE INTO commenters (url, author)
-                        VALUES (?, ?)
-                    ''', (url, author))
-            
-            conn.commit()
-            print(f"DEBUG: [DB] Saved {len(participants_dict) if participants_dict else 0} participants and {len(all_commenters) if all_commenters else 0} commenters for URL: {url}")
+                    cursor.execute('INSERT OR IGNORE INTO commenters (url, author) VALUES (?, ?)', (url, author))
 
-    def set_active_url(self, url: str):
-        """특정 URL을 활성 이벤트로 설정합니다 (다른 이벤트는 비활성화)."""
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE posts SET is_active = 0")
-            cursor.execute("UPDATE posts SET is_active = 1 WHERE url = ?", (url,))
-            conn.commit()
             print(f"DEBUG: [DB] Set active URL: {url}")
 
+        if self.supabase:
+            try:
+                self.supabase.table("posts").update({"is_active": False}).execute()
+                self.supabase.table("posts").update({"is_active": True}).eq("url", url).execute()
+                print(f"DEBUG: [Supabase] Active URL set: {url}")
+            except Exception as e:
+                print(f"DEBUG: [Supabase Sync Error] set_active_url: {e}")
+
     def get_active_url(self) -> str:
-        """현재 활성화된 이벤트 URL을 가져옵니다."""
+        """현재 활성화된 이벤트 URL을 가져옵니다 (Supabase 우선)."""
+        if self.supabase:
+            try:
+                res = self.supabase.table("posts").select("url").eq("is_active", True).limit(1).execute()
+                if res.data: return res.data[0]["url"]
+                
+                # 활성 표시 없으면 최근 업데이트 순
+                res = self.supabase.table("posts").select("url").order("updated_at", desc=True).limit(1).execute()
+                if res.data: return res.data[0]["url"]
+            except Exception as e:
+                print(f"DEBUG: [Supabase Error] get_active_url: {e}")
+
+        # 로컬 폴백
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT url FROM posts WHERE is_active = 1 LIMIT 1")
@@ -183,16 +248,36 @@ class CommentDatabase:
             conn.commit()
             print(f"DEBUG: [DB] Updated timestamp for URL: {url}")
 
-    def get_data(self, url: str) -> Tuple[Dict[str, int], List[str], str, str, str, str, bool]:
-        """특정 URL의 저장된 데이터 조회"""
-        participants = {}
-        all_commenters = []
-        last_id = None
-        title = None
-        prizes = None
-        winners = None
-        allow_duplicates = True
-        
+                allow_duplicates = True
+                
+        # Supabase 연동 시도
+        if self.supabase:
+            try:
+                res = self.supabase.table("posts").select("*").eq("url", url).execute()
+                if res.data:
+                    row = res.data[0]
+                    last_id = row.get("last_comment_id", last_id)
+                    title = row.get("title", title)
+                    prizes = row.get("prizes", prizes)
+                    winners = row.get("winners", winners)
+                    allow_duplicates = row.get("allow_duplicates", True)
+
+                # 참여자 목록
+                res = self.supabase.table("participants").select("author, count").eq("url", url).execute()
+                if res.data:
+                    participants = {r["author"]: r["count"] for r in res.data}
+                
+                # 댓글 작성자
+                res = self.supabase.table("commenters").select("author").eq("url", url).execute()
+                if res.data:
+                    all_commenters = [r["author"] for r in res.data]
+                
+                print(f"DEBUG: [Supabase Data] Loaded {len(participants)} participants for {url}")
+                return participants, all_commenters, last_id, title, prizes, winners, allow_duplicates
+            except Exception as e:
+                print(f"DEBUG: [Supabase Error] get_data: {e}")
+
+        # 로컬 폴백
         with self._get_connection() as conn:
             cursor = conn.cursor()
             

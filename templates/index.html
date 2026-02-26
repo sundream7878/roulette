@@ -756,7 +756,12 @@
                 const hours = now.getHours().toString().padStart(2, '0');
                 const minutes = now.getMinutes().toString().padStart(2, '0');
                 const seconds = now.getSeconds().toString().padStart(2, '0');
-                const timeString = `${hours}:${minutes}:${seconds}`;
+
+                // 요일 계산
+                const days = ['일', '월', '화', '수', '목', '금', '토'];
+                const dayName = days[now.getDay()];
+
+                const timeString = `${hours}:${minutes}:${seconds} (${dayName})`;
 
                 // 관리자 모드 시간 업데이트
                 const currentTimeElement = document.getElementById('current-time');
@@ -768,7 +773,6 @@
                 const guestCurrentTime = document.getElementById('guest-current-time');
                 if (guestCurrentTime) {
                     guestCurrentTime.innerText = timeString;
-                    // console.log("게스트 시간 업데이트:", timeString);
                 }
 
                 // 관리자 모드에서만 표시 - 원래 코드 유지
@@ -1053,8 +1057,9 @@
                     if (ed.prizes !== undefined || ed.winners !== undefined) {
                         const prizeListEl = document.getElementById('prize-list');
                         if (prizeListEl) {
-                            if (ed.prizes !== undefined) prizeListEl.dataset.prizes = ed.prizes;
-                            if (ed.winners !== undefined) prizeListEl.dataset.winners = ed.winners;
+                            // null 값 처리 (Render 데이터 등)
+                            if (ed.prizes !== undefined) prizeListEl.dataset.prizes = ed.prizes || '';
+                            if (ed.winners !== undefined) prizeListEl.dataset.winners = ed.winners || '';
 
                             const currentPrizes = prizeListEl.dataset.prizes || '';
                             const currentWinners = prizeListEl.dataset.winners || '';
@@ -1261,9 +1266,9 @@
                     const prizeListEl = document.getElementById('prize-list');
                     if (!prizeListEl) return;
 
-                    // 데이터 속성 업데이트
-                    if (data.prizes !== undefined) prizeListEl.dataset.prizes = data.prizes;
-                    if (data.winners !== undefined) prizeListEl.dataset.winners = data.winners;
+                    // 데이터 속성 업데이트 (null 방지)
+                    if (data.prizes !== undefined) prizeListEl.dataset.prizes = data.prizes || '';
+                    if (data.winners !== undefined) prizeListEl.dataset.winners = data.winners || '';
 
                     const currentPrizes = prizeListEl.dataset.prizes || '';
                     const currentWinners = prizeListEl.dataset.winners || '';

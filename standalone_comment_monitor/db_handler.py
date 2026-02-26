@@ -123,9 +123,6 @@ class CommentDatabase:
             conn.commit()
             print(f"DEBUG: [DB] Cleared data for URL: {url}")
 
-            conn.commit()
-            print(f"DEBUG: [Local DB] Saved {len(participants_dict) if participants_dict else 0} participants for URL: {url}")
-
     def _sync_to_supabase(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
                          all_commenters: List[str] = None, title: str = None, prizes: str = None, 
                          winners: str = None, allow_duplicates: bool = None):
@@ -142,7 +139,7 @@ class CommentDatabase:
             if prizes is not None: post_data["prizes"] = prizes
             if winners is not None: post_data["winners"] = winners
             if allow_duplicates is not None: post_data["allow_duplicates"] = allow_duplicates
-            if last_comment_id != '': post_data["last_comment_id"] = last_comment_id
+            if last_comment_id and last_comment_id != '': post_data["last_comment_id"] = last_comment_id
 
             self.supabase.table("posts").upsert(post_data).execute()
 
@@ -175,7 +172,7 @@ class CommentDatabase:
 
     def _save_to_local(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
                       all_commenters: List[str] = None, title: str = None, prizes: str = None, winners: str = None, allow_duplicates: bool = None):
-        """기존 SQLite 저장 로직 분리"""
+        """SQLite 저장 로직"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -200,8 +197,24 @@ class CommentDatabase:
             if all_commenters:
                 for author in all_commenters:
                     cursor.execute('INSERT OR IGNORE INTO commenters (url, author) VALUES (?, ?)', (url, author))
+            
+            conn.commit()
+            print(f"DEBUG: [Local DB] Saved data for URL: {url}")
 
-            print(f"DEBUG: [DB] Set active URL: {url}")
+    def save_data(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
+                  all_commenters: List[str] = None, title: str = None, prizes: str = None, winners: str = None, allow_duplicates: bool = None):
+        """수집된 데이터를 저장하거나 업데이트 (Local + Supabase)"""
+        self._save_to_local(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
+        self._sync_to_supabase(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
+
+    def set_active_url(self, url: str):
+        """특정 URL을 활성 이벤트로 설정 (Local + Supabase)"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE posts SET is_active = 0")
+            cursor.execute("UPDATE posts SET is_active = 1 WHERE url = ?", (url,))
+            conn.commit()
+            print(f"DEBUG: [Local DB] Set active URL: {url}")
 
         if self.supabase:
             try:
@@ -217,21 +230,16 @@ class CommentDatabase:
             try:
                 res = self.supabase.table("posts").select("url").eq("is_active", True).limit(1).execute()
                 if res.data: return res.data[0]["url"]
-                
-                # 활성 표시 없으면 최근 업데이트 순
                 res = self.supabase.table("posts").select("url").order("updated_at", desc=True).limit(1).execute()
                 if res.data: return res.data[0]["url"]
             except Exception as e:
                 print(f"DEBUG: [Supabase Error] get_active_url: {e}")
 
-        # 로컬 폴백
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT url FROM posts WHERE is_active = 1 LIMIT 1")
             row = cursor.fetchone()
-            if row:
-                return row[0]
-            # 활성 표시된 게 없으면 가장 최근 업데이트된 것 반환
+            if row: return row[0]
             cursor.execute("SELECT url FROM posts ORDER BY updated_at DESC LIMIT 1")
             row = cursor.fetchone()
             return row[0] if row else None
@@ -240,17 +248,19 @@ class CommentDatabase:
         """특정 URL의 updated_at 필드를 현재 시간으로 갱신합니다."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE posts 
-                SET updated_at = ? 
-                WHERE url = ?
-            ''', (datetime.now(), url))
+            cursor.execute('UPDATE posts SET updated_at = ? WHERE url = ?', (datetime.now(), url))
             conn.commit()
-            print(f"DEBUG: [DB] Updated timestamp for URL: {url}")
 
-                allow_duplicates = True
-                
-        # Supabase 연동 시도
+    def get_data(self, url: str) -> Tuple[Dict[str, int], List[str], str, str, str, str, bool]:
+        """특정 URL의 저장된 데이터 조회 (Supabase 우선)"""
+        participants = {}
+        all_commenters = []
+        last_id = None
+        title = None
+        prizes = None
+        winners = None
+        allow_duplicates = True
+        
         if self.supabase:
             try:
                 res = self.supabase.table("posts").select("*").eq("url", url).execute()
@@ -262,39 +272,30 @@ class CommentDatabase:
                     winners = row.get("winners", winners)
                     allow_duplicates = row.get("allow_duplicates", True)
 
-                # 참여자 목록
                 res = self.supabase.table("participants").select("author, count").eq("url", url).execute()
                 if res.data:
                     participants = {r["author"]: r["count"] for r in res.data}
                 
-                # 댓글 작성자
                 res = self.supabase.table("commenters").select("author").eq("url", url).execute()
                 if res.data:
                     all_commenters = [r["author"] for r in res.data]
                 
-                print(f"DEBUG: [Supabase Data] Loaded {len(participants)} participants for {url}")
                 return participants, all_commenters, last_id, title, prizes, winners, allow_duplicates
             except Exception as e:
                 print(f"DEBUG: [Supabase Error] get_data: {e}")
 
-        # 로컬 폴백
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            
-            # 게시글 정보 조회
             cursor.execute("SELECT last_comment_id, title, prizes, winners, allow_duplicates FROM posts WHERE url = ?", (url,))
             row = cursor.fetchone()
             if row:
                 last_id, title, prizes, winners, allow_duplicates = row
                 if allow_duplicates is None: allow_duplicates = True
             
-            # 참여자 목록 조회
             cursor.execute("SELECT author, count FROM participants WHERE url = ?", (url,))
-            rows = cursor.fetchall()
-            for author, count in rows:
+            for author, count in cursor.fetchall():
                 participants[author] = count
                 
-            # 모든 작성자 목록 조회
             cursor.execute("SELECT author FROM commenters WHERE url = ?", (url,))
             all_commenters = [r[0] for r in cursor.fetchall()]
                 

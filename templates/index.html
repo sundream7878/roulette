@@ -882,7 +882,7 @@
 
                             stopBeepLoop();
 
-                            socket.emit('confirm_winner');
+                            socket.emit('confirm_winner', { url: currentUrl });
                         }
                         return;
                     }
@@ -960,9 +960,11 @@
                     // 애니메이션 효과 (크기 확대)
                     winnerOverlay.style.animation = 'winner-popup 1s ease-out';
 
-                    // 5초 후 오버레이 숨기기
+                    // 5초 후 오버레이 숨기기 및 페이지 자동 새로고침 (데이터 동기화)
                     setTimeout(() => {
                         winnerOverlay.style.display = 'none';
+                        console.log('자동 새로고침 실행 (5초 경과)');
+                        window.location.reload();
                     }, 5000);
                 }
 
@@ -1191,46 +1193,52 @@
                     legendContainer.innerHTML = legendHtml;
                     console.log('범례 업데이트 완료');
                 }
-                socket.on('update_event_settings', (data) => {
-                    console.log('DEBUG: Event settings updated:', data);
-                    if (data.title) {
-                        document.getElementById('event-title-display').innerText = data.title;
-                    }
+            });
 
-                    // 사은품 또는 당첨자 업데이트 시 목록 다시 그리기
-                    if (data.prizes || data.winners) {
-                        // 현재 DOM에 있는 값 또는 새로 받은 값 사용
-                        const currentPrizes = data.prizes || (document.getElementById('prize-list').dataset.prizes || '');
-                        const currentWinners = data.winners || (document.getElementById('prize-list').dataset.winners || '');
-
-                        // 데이터 속성 업데이트 (다음에 재사용 위해)
-                        const prizeListEl = document.getElementById('prize-list');
-                        if (data.prizes) prizeListEl.dataset.prizes = data.prizes;
-                        if (data.winners) prizeListEl.dataset.winners = currentWinners; // Use currentWinners here to ensure it's always set
-
-                        if (currentPrizes) {
-                            const pList = currentPrizes.split('\n').filter(p => p.trim());
-                            const wList = currentWinners ? currentWinners.split(',') : [];
-
-                            prizeListEl.innerHTML = pList.map((prize, index) => {
-                                let winnerHtml = '';
-                                if (index < wList.length) {
-                                    winnerHtml = `<span class="winner-badge">🏆 ${wList[index]}</span>`;
-                                }
-                                return `<div class="prize-item"><span>${prize}</span>${winnerHtml}</div>`;
-                            }).join('');
-                        } else {
-                            prizeListEl.innerHTML = '<div class="prize-item" style="color: #999;">등록된 사은품이 없습니다.</div>';
-                        }
-                    }
-                });
-
-                // 초기 데이터 속성 설정 (서버 렌더링 값 싱크)
-                const prizeListEl = document.getElementById('prize-list');
+            // 초기 데이터 속성 설정 (서버 렌더링 값 싱크)
+            const prizeListEl = document.getElementById('prize-list');
+            if (prizeListEl) {
                 const initialPrizes = `{{ prizes if prizes else '' }}`;
                 const initialWinners = `{{ winners if winners else '' }}`;
                 prizeListEl.dataset.prizes = initialPrizes;
                 prizeListEl.dataset.winners = initialWinners;
+                console.log('초기 데이터 속성 설정 완료');
+            }
+
+            socket.on('update_event_settings', (data) => {
+                console.log('DEBUG: Event settings updated:', data);
+                if (data.title) {
+                    document.getElementById('event-title-display').innerText = data.title;
+                }
+
+                // 사은품 또는 당첨자 업데이트 시 목록 다시 그리기
+                if (data.prizes !== undefined || data.winners !== undefined) {
+                    const prizeListEl = document.getElementById('prize-list');
+                    if (!prizeListEl) return;
+
+                    // 데이터 속성 업데이트
+                    if (data.prizes !== undefined) prizeListEl.dataset.prizes = data.prizes;
+                    if (data.winners !== undefined) prizeListEl.dataset.winners = data.winners;
+
+                    const currentPrizes = prizeListEl.dataset.prizes || '';
+                    const currentWinners = prizeListEl.dataset.winners || '';
+
+                    if (currentPrizes.trim()) {
+                        const pList = currentPrizes.split('\n').map(p => p.trim()).filter(p => p);
+                        const wList = currentWinners ? currentWinners.split(',').map(w => w.trim()).filter(w => w) : [];
+
+                        prizeListEl.innerHTML = pList.map((prize, index) => {
+                            let winnerHtml = '';
+                            if (index < wList.length) {
+                                winnerHtml = `<span class="winner-badge">🏆 ${wList[index]}</span>`;
+                            }
+                            return `<div class="prize-item"><span>${prize}</span>${winnerHtml}</div>`;
+                        }).join('');
+                        console.log('사은품/당첨자 목록 UI 갱신 완료');
+                    } else {
+                        prizeListEl.innerHTML = '<div class="prize-item" style="color: #999;">등록된 사은품이 없습니다.</div>';
+                    }
+                }
             });
         };
     </script>

@@ -2,6 +2,7 @@ from flask_cors import CORS
 import os
 import random
 import datetime
+import time
 
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user
@@ -12,7 +13,7 @@ from flask_socketio import SocketIO
 
 # [추가] 로컬 전용 모니터링 블루프린트 임포트
 try:
-    from monitor_view import monitor_bp, db, sync_files, get_allowed_list, ACTIVE_URL_FILE
+    from monitor_view import monitor_bp, db, sync_files, get_allowed_list, ACTIVE_URL_FILE, normalize_url
     HAS_MONITOR = True
 except ImportError:
     HAS_MONITOR = False
@@ -23,7 +24,8 @@ def get_active_url():
     try:
         if os.path.exists(ACTIVE_URL_FILE):
             with open(ACTIVE_URL_FILE, 'r', encoding='utf-8') as f:
-                return f.read().strip()
+                url = f.read().strip()
+                return normalize_url(url)
     except: pass
     
     # 파일이 없으면 기존처럼 DB에서 가장 최근 업데이트된 URL 가져오기
@@ -334,11 +336,12 @@ def handle_start_rotation(data):
     socketio.start_background_task(schedule_end_notification)
 
 @socketio.on('confirm_winner')
-def handle_confirm_winner():
+def handle_confirm_winner(data=None):
     """
     애니메이션 완료 후 당첨자 확인 이벤트 처리
     클라이언트에서 애니메이션이 완료된 후 호출됨
     """
+    if data is None: data = {}
     user_id = current_user.id if current_user.is_authenticated else 'anonymous'
     
     # 먼저 user_id로 게임 정보 확인
@@ -369,75 +372,75 @@ def handle_confirm_winner():
         
         print(f"DEBUG: 당첨자 확정: {winner} (현재 active URL에 저장 시도)")
         
-        if HAS_MONITOR:
-            try:
-                # 클라이언트에서 전달받은 URL 사용 (없으면 폴백으로 현재 활성 URL)
-                active_url = data.get('url') or get_active_url()
-                if active_url:
-                    # 1. 현재 데이터 모두 가져오기 (덮어쓰기 방지)
-                    participants, all_commenters, last_id, title, prizes, current_winners_str, allow_duplicates = db.get_data(active_url)
+        try:
+            # 클라이언트에서 전달받은 URL 사용 (없으면 폴백으로 현재 활성 URL)
+            active_url = normalize_url(data.get('url')) if data.get('url') else get_active_url()
+            if active_url:
+                # 1. 현재 데이터 모두 가져오기 (덮어쓰기 방지)
+                participants, all_commenters, last_id, title, prizes, current_winners_str, allow_duplicates = db.get_data(active_url)
+                
+                print(f"DEBUG: Policy - Allow Duplicates: {allow_duplicates}, Participants count: {len(participants)}")
+                
+                if not participants:
+                    print(f"WARNING: No participants found for {active_url}. Skipping confirmation to prevent data loss.")
+                    return
+                
+                current_winners = []
+                if current_winners_str:
+                    current_winners = current_winners_str.split(',')
+                
+                # 2. 새 당첨자 추가 (중복 허용 여부와 무관하게 당첨 내역에는 추가)
+                current_winners.append(winner)
+                new_winners_str = ','.join(current_winners)
+                
+                # [추가] 중복 당첨 비허용 시 참가자 명단에서 제거
+                if not allow_duplicates:
+                    if winner in participants:
+                        del participants[winner]
+                        print(f"DEBUG: Removed winner '{winner}' from participants (No Duplicates Policy)")
+                
+                # 3. 저장 (기존 데이터 보존하며 winners 및 participants 업데이트)
+                # participants_dict 업데이트 된 내용 반영
+                db.save_data(active_url, participants, last_id if last_id else '', winners=new_winners_str)
+                
+                # [추가] participants.txt 파일 동기화 (룰렛 엔진용)
+                if not allow_duplicates:
+                    sync_files(participants, last_id if last_id else '')
                     
-                    print(f"DEBUG: Policy - Allow Duplicates: {allow_duplicates}, Participants count: {len(participants)}")
+                print(f"DEBUG: Saved winners to DB: {new_winners_str}")
+                
+                # 4. 브로드캐스트
+                socketio.emit('update_event_settings', {
+                    'winners': new_winners_str,
+                    'prizes': prizes
+                }, namespace='/')
+                
+                # [추가] 참가자 명단 변경 사항 브로드캐스트 (중복 비허용 시 제거된 명단 전송 필요)
+                if not allow_duplicates:
+                    # 룰렛용 명단
+                    p_list_for_roulette = [(name, int(count)) for name, count in participants.items()]
+                    p_list_for_roulette.sort(key=lambda x: x[0])
                     
-                    if not participants:
-                        print(f"WARNING: No participants found for {active_url}. Skipping confirmation to prevent data loss.")
-                        return
+                    # [중요] 전체 활동 목록(full_commenter_list)을 DB에서 가져와서 배지 정보 추가
+                    allowed_list = get_allowed_list()
+                    full_commenter_data = []
+                    for author in all_commenters:
+                        is_whitelisted = author in allowed_list
+                        full_commenter_data.append({
+                            'name': author,
+                            'is_whitelisted': is_whitelisted,
+                            'tickets': allowed_list.get(author, 1) if is_whitelisted else 0
+                        })
                     
-                    current_winners = []
-                    if current_winners_str:
-                        current_winners = current_winners_str.split(',')
-                    
-                    # 2. 새 당첨자 추가 (중복 허용 여부와 무관하게 당첨 내역에는 추가)
-                    current_winners.append(winner)
-                    new_winners_str = ','.join(current_winners)
-                    
-                    # [추가] 중복 당첨 비허용 시 참가자 명단에서 제거
-                    if not allow_duplicates:
-                        if winner in participants:
-                            del participants[winner]
-                            print(f"DEBUG: Removed winner '{winner}' from participants (No Duplicates Policy)")
-                    
-                    # 3. 저장 (기존 데이터 보존하며 winners 및 participants 업데이트)
-                    # participants_dict 업데이트 된 내용 반영
-                    db.save_data(active_url, participants, last_id if last_id else '', winners=new_winners_str)
-                    
-                    # [추가] participants.txt 파일 동기화 (룰렛 엔진용)
-                    if not allow_duplicates:
-                        sync_files(participants, last_id if last_id else '')
-                        
-                    print(f"DEBUG: Saved winners to DB: {new_winners_str}")
-                    
-                    # 4. 브로드캐스트
-                    socketio.emit('update_event_settings', {
-                        'winners': new_winners_str
+                    socketio.emit('update_participants', {
+                        'participants': p_list_for_roulette,
+                        'full_commenter_list': full_commenter_data,
+                        'total_comments': len(all_commenters),
+                        'event_id': str(int(time.time()))
                     }, namespace='/')
-                    
-                    # [추가] 참가자 명단 변경 사항 브로드캐스트 (중복 비허용 시 제거된 명단 전송 필요)
-                    if not allow_duplicates:
-                        # 룰렛용 명단
-                        p_list_for_roulette = [(name, int(count)) for name, count in participants.items()]
-                        p_list_for_roulette.sort(key=lambda x: x[0])
-                        
-                        # [중요] 전체 활동 목록(full_commenter_list)을 DB에서 가져와서 배지 정보 추가
-                        allowed_list = get_allowed_list()
-                        full_commenter_data = []
-                        for author in all_commenters:
-                            is_whitelisted = author in allowed_list
-                            full_commenter_data.append({
-                                'name': author,
-                                'is_whitelisted': is_whitelisted,
-                                'tickets': allowed_list.get(author, 1) if is_whitelisted else 0
-                            })
-                        
-                        socketio.emit('update_participants', {
-                            'participants': p_list_for_roulette,
-                            'full_commenter_list': full_commenter_data,
-                            'total_comments': len(all_commenters),
-                            'event_id': str(int(time.time()))
-                        }, namespace='/')
 
-            except Exception as e:
-                print(f"DEBUG: Failed to save winner to DB: {e}")
+        except Exception as e:
+            print(f"DEBUG: Failed to save winner to DB: {e}")
         # 당첨자 정보 전송
         socketio.emit('update_winner', {'winner': winner}, namespace='/')
         socketio.emit('play_fanfare', namespace='/')

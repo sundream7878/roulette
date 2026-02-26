@@ -34,6 +34,7 @@ class CommentDatabase:
                     prizes TEXT,
                     winners TEXT,
                     allow_duplicates BOOLEAN DEFAULT 1,
+                    is_active BOOLEAN DEFAULT 0,
                     last_comment_id TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -64,6 +65,12 @@ class CommentDatabase:
                 try:
                     cursor.execute("ALTER TABLE posts ADD COLUMN allow_duplicates BOOLEAN DEFAULT 1")
                     print("DEBUG: [DB Migration] Added 'allow_duplicates' column to posts table.")
+                except Exception as e:
+                    print(f"DEBUG: [DB Migration Error] {e}")
+            if 'is_active' not in columns:
+                try:
+                    cursor.execute("ALTER TABLE posts ADD COLUMN is_active BOOLEAN DEFAULT 0")
+                    print("DEBUG: [DB Migration] Added 'is_active' column to posts table.")
                 except Exception as e:
                     print(f"DEBUG: [DB Migration Error] {e}")
 
@@ -141,6 +148,28 @@ class CommentDatabase:
             
             conn.commit()
             print(f"DEBUG: [DB] Saved {len(participants_dict) if participants_dict else 0} participants and {len(all_commenters) if all_commenters else 0} commenters for URL: {url}")
+
+    def set_active_url(self, url: str):
+        """특정 URL을 활성 이벤트로 설정합니다 (다른 이벤트는 비활성화)."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE posts SET is_active = 0")
+            cursor.execute("UPDATE posts SET is_active = 1 WHERE url = ?", (url,))
+            conn.commit()
+            print(f"DEBUG: [DB] Set active URL: {url}")
+
+    def get_active_url(self) -> str:
+        """현재 활성화된 이벤트 URL을 가져옵니다."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT url FROM posts WHERE is_active = 1 LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+            # 활성 표시된 게 없으면 가장 최근 업데이트된 것 반환
+            cursor.execute("SELECT url FROM posts ORDER BY updated_at DESC LIMIT 1")
+            row = cursor.fetchone()
+            return row[0] if row else None
 
     def update_timestamp(self, url: str):
         """특정 URL의 updated_at 필드를 현재 시간으로 갱신합니다."""

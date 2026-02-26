@@ -26,6 +26,9 @@ def set_active_url(url):
         url = f"https://cafe.naver.com/ca-fe/web/cafes/{clubid}/articles/{articleid}"
     
     try:
+        # DB에 활성 상태 저장 (Render 환경 대응)
+        db.set_active_url(url)
+        
         with open(ACTIVE_URL_FILE, 'w', encoding='utf-8') as f:
             f.write(url.strip())
         print(f"DEBUG: Active URL set to: {url}")

@@ -1040,7 +1040,46 @@
             socket.on('game_status', function (data) {
                 console.log('게임 상태 수신:', data);
 
-                // 타겟 시간 설정
+                // 1. 이벤트 데이터 동기화 (게스트 및 초기 접속자용)
+                if (data.event_data) {
+                    const ed = data.event_data;
+                    console.log('이벤트 데이터 동기화 시도:', ed);
+
+                    if (ed.title) {
+                        const titleEl = document.getElementById('event-title-display');
+                        if (titleEl) titleEl.innerText = ed.title;
+                    }
+
+                    if (ed.prizes !== undefined || ed.winners !== undefined) {
+                        const prizeListEl = document.getElementById('prize-list');
+                        if (prizeListEl) {
+                            if (ed.prizes !== undefined) prizeListEl.dataset.prizes = ed.prizes;
+                            if (ed.winners !== undefined) prizeListEl.dataset.winners = ed.winners;
+
+                            const currentPrizes = prizeListEl.dataset.prizes || '';
+                            const currentWinners = prizeListEl.dataset.winners || '';
+
+                            if (currentPrizes.trim()) {
+                                const pList = currentPrizes.split('\n').map(p => p.trim()).filter(p => p);
+                                const wList = currentWinners ? currentWinners.split(',').map(w => w.trim()).filter(w => w) : [];
+
+                                prizeListEl.innerHTML = pList.map((prize, index) => {
+                                    let winnerHtml = '';
+                                    if (index < wList.length) {
+                                        winnerHtml = `<span class="winner-badge">🏆 ${wList[index]}</span>`;
+                                    }
+                                    return `<div class="prize-item"><span>${prize}</span>${winnerHtml}</div>`;
+                                }).join('');
+                            }
+                        }
+                    }
+
+                    if (ed.participants) {
+                        updateParticipantsUI(ed.participants);
+                    }
+                }
+
+                // 2. 타겟 시간 설정
                 if (data.target_time) {
                     try {
                         const targetDate = new Date(data.target_time);
@@ -1159,10 +1198,11 @@
                 }
             });
 
-            socket.on('update_participants', function (data) {
-                console.log('실시간 참가자 업데이트 수신:', data);
+            // 참가자 명단 및 차트 업데이트 함수
+            function updateParticipantsUI(p_list) {
+                if (!p_list) return;
+                console.log('참가자 UI 업데이트 실행:', p_list.length + '명');
 
-                const p_list = data.participants;
                 const colors = generateColors(p_list.length);
 
                 // 1. 차트 갱신
@@ -1171,7 +1211,6 @@
                     chart.data.datasets[0].data = p_list.map(p => p[1]);
                     chart.data.datasets[0].backgroundColor = colors;
                     chart.update();
-                    console.log('차트 업데이트 완료');
                 }
 
                 // 2. 범례(Legend) 갱신
@@ -1191,7 +1230,13 @@
                         </div>`;
                     });
                     legendContainer.innerHTML = legendHtml;
-                    console.log('범례 업데이트 완료');
+                }
+            }
+
+            socket.on('update_participants', function (data) {
+                console.log('실시간 참가자 업데이트 수신:', data);
+                if (data.participants) {
+                    updateParticipantsUI(data.participants);
                 }
             });
 

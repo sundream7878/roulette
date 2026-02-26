@@ -22,18 +22,18 @@ def get_active_url():
     """현재 활성화된 이벤트 URL을 가져옵니다."""
     if not HAS_MONITOR: return None
     try:
+        # DB에서 활성 URL 가져오기 (Render 대응 우선)
+        url = db.get_active_url()
+        if url:
+            return normalize_url(url)
+            
+        # 백업: 파일에서 가져오기
         if os.path.exists(ACTIVE_URL_FILE):
             with open(ACTIVE_URL_FILE, 'r', encoding='utf-8') as f:
                 url = f.read().strip()
                 return normalize_url(url)
     except: pass
-    
-    # 파일이 없으면 기존처럼 DB에서 가장 최근 업데이트된 URL 가져오기
-    try:
-        urls = db.get_all_urls()
-        return urls[0] if urls else None
-    except:
-        return None
+    return None
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
@@ -146,19 +146,46 @@ def guest_view():
     
 # ----- 참가자 로딩 함수 (가나다순 정렬 추가) -----
 def load_participants(filename="participants.txt"):
+    """
+    참가자 데이터를 로드합니다. 
+    1. 활성화된 이벤트가 있으면 DB에서 가져옵니다 (Render 대응).
+    2. DB에 데이터가 없거나 활성화된 이벤트가 없으면 participants.txt 파일을 확인합니다.
+    """
+    if HAS_MONITOR:
+        try:
+            active_url = get_active_url()
+            if active_url:
+                participants_dict, _, _, _, _, _, _ = db.get_data(active_url)
+                if participants_dict:
+                    # 룰렛 엔진용 리스트 형식으로 변환
+                    participants = [(name, int(count)) for name, count in participants_dict.items()]
+                    participants.sort(key=lambda x: x[0])
+                    
+                    # 별명 100개 이상이면 숫자로 대체 (기존 로직 유지)
+                    if len(participants) > 100:
+                        participants = [(f"{i+1}", count) for i, (name, count) in enumerate(participants)]
+                    
+                    print(f"DEBUG: Loaded {len(participants)} participants from DB for {active_url}")
+                    return participants
+        except Exception as e:
+            print(f"DEBUG: Error loading participants from DB: {e}")
+
+    # Fallback: 기존 participants.txt 파일 로직
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     participants_file = os.path.join(BASE_DIR, filename)
     try:
+        if not os.path.exists(participants_file):
+            return []
+            
         with open(participants_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
+        
         participants_dict = {}
         for line in lines:
             line = line.strip()
-            if not line:
-                continue
+            if not line: continue
             parts = line.split()
-            if len(parts) < 2:
-                continue
+            if len(parts) < 2: continue
             name = parts[0]
             try:
                 count = float(parts[1])
@@ -166,19 +193,18 @@ def load_participants(filename="participants.txt"):
                 count = 1.0
             participants_dict[name] = participants_dict.get(name, 0) + count
 
-        # participants 리스트를 생성하고, 별명 100개 이상이면 숫자로 대체
         participants = [(name, int(count)) for name, count in participants_dict.items()]
-        
-        # 가나다순으로 정렬 (이름 기준)
         participants.sort(key=lambda x: x[0])
         
         if len(participants) > 100:
             participants = [(f"{i+1}", count) for i, (name, count) in enumerate(participants)]
+        
+        print(f"DEBUG: Loaded {len(participants)} participants from file {filename}")
         return participants
 
     except Exception as e:
-        print("[ERROR] Failed to load participants:", e)
-        return None
+        print("[ERROR] Failed to load participants from file:", e)
+        return []
 
 # 전역 변수 제거 (함수 내에서 동적 로드)
 # participants = load_participants()
@@ -471,6 +497,28 @@ def handle_request_game_status():
                 active_game = game
                 break
     
+    # 현재 활성 이벤트 데이터 가져오기 (게스트 동기화용)
+    active_event_data = {}
+    if HAS_MONITOR:
+        try:
+            active_url = get_active_url()
+            if active_url:
+                participants_dict, all_commenter_list, last_id, title, prizes, winners, allow_duplicates = db.get_data(active_url)
+                
+                # 룰렛용 명단 [(이름, 횟수), ...]
+                p_list_for_roulette = [(name, int(count)) for name, count in participants_dict.items()]
+                p_list_for_roulette.sort(key=lambda x: x[0])
+                
+                active_event_data = {
+                    'title': title,
+                    'prizes': prizes,
+                    'winners': winners,
+                    'participants': p_list_for_roulette,
+                    'current_url': active_url
+                }
+        except Exception as e:
+            print(f"DEBUG: Error fetching initial sync data: {e}")
+
     if active_game:
         now = datetime.datetime.utcnow()
         target_time = active_game['target_time']
@@ -480,14 +528,15 @@ def handle_request_game_status():
             # 남은 시간 계산
             duration_left = (target_time - now).total_seconds()
             
-            # 클라이언트에게 게임 상태, 회전 정보, 남은 시간 전송
+            # 클라이언트에게 게임 상태, 회전 정보, 남은 시간 및 이벤트 데이터 전송
             socketio.emit('game_status', {
                 'target_time': target_time.isoformat(),
                 'final_winner': active_game.get('final_winner'),
                 'is_running': active_game.get('running', False),
                 'finalAngle': active_game.get('current_angle', 0),
                 'duration_left': duration_left,
-                'total_duration': active_game.get('total_duration', 0)
+                'total_duration': active_game.get('total_duration', 0),
+                'event_data': active_event_data
             }, namespace='/')
             
             # 진행 중인 게임이 있으므로 start_game 이벤트도 전송
@@ -500,18 +549,21 @@ def handle_request_game_status():
             print(f"진행 중인 게임 정보 전송: 남은 시간 {duration_left:.2f}초")
             return
         else:
-            # 게임이 이미 종료됨 - 결과만 전송
+            # 게임이 이미 종료됨 - 결과 및 이벤트 데이터 전송
             socketio.emit('game_status', {
                 'target_time': target_time.isoformat(),
                 'final_winner': active_game.get('final_winner'),
-                'is_running': False
+                'is_running': False,
+                'event_data': active_event_data
             }, namespace='/')
             print("이미 종료된 게임 정보 전송")
             return
     
-    # 진행 중인 게임이 없는 경우
-    socketio.emit('game_status', {}, namespace='/')
-    print("진행 중인 게임 없음")
+    # 진행 중인 게임이 없는 경우에도 이벤트 데이터는 보냄 (동기화)
+    socketio.emit('game_status', {
+        'event_data': active_event_data
+    }, namespace='/')
+    print("진행 중인 게임 없음 (동기화 데이터 전송)")
         
 def calculate_winner_at_angle(angle, participants_list):
     """

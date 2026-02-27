@@ -247,7 +247,11 @@ def sync_participants_with_whitelist(url, existing_participants, all_commenters)
 
 @monitor_bp.route('/monitor_page')
 def monitor_page():
-    return render_template('monitor.html')
+    try:
+        current_url = db.get_active_url() or ''
+    except:
+        current_url = ''
+    return render_template('monitor.html', current_url=current_url)
 
 @monitor_bp.route('/api/update_event_settings', methods=['POST'])
 def update_event_settings():

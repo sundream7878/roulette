@@ -1181,7 +1181,12 @@
 
         window.onload = () => {
             loadAllowedList();
-            if (document.getElementById('url').value) loadData();
+            const urlField = document.getElementById('url');
+            if (urlField && urlField.value) {
+                // URL이 서버에서 자동으로 채워졌으면 바로 모니터링 시작
+                console.log('활성 URL 감지 → 자동 모니터링 시작:', urlField.value);
+                startMonitoring();
+            }
         };
     </script>
 </body>

@@ -549,6 +549,7 @@ def start_background_monitoring(url):
                                             state['participants'][writer] = allowed_list[writer]
                                             added_count += 1
                         
+                        any_new_commenter = False
                         if added_count > 0:
                             # 마지막 ID 업데이트
                             for last_c in reversed(new_comments):
@@ -559,7 +560,15 @@ def start_background_monitoring(url):
                             
                             # DB 동기화
                             db.save_data(url, state['participants'], state['last_id'], list(all_commenters))
-                            
+                            any_new_commenter = True
+
+                        # 새 댓글 작성자가 추가됐는지 확인 (화이트리스트 여부 관계없이)
+                        new_commenter_count = len(state.get('all_commenters', set()))
+                        if new_commenter_count != state.get('_last_broadcast_commenter_count', -1):
+                            any_new_commenter = True
+                            state['_last_broadcast_commenter_count'] = new_commenter_count
+
+                        if any_new_commenter:
                             # UI 업데이트 소켓 전송
                             # 룰렛용 명단 [(이름, 티켓수), ...]
                             p_list_for_roulette = [(name, int(count)) for name, count in state['participants'].items()]
@@ -586,7 +595,8 @@ def start_background_monitoring(url):
                             })
                             
                             # 룰렛용 파일 동기화
-                            sync_files(state['participants'], state['last_id'])
+                            if added_count > 0:
+                                sync_files(state['participants'], state['last_id'])
 
             except Exception as le:
                 print(f"DEBUG: [Background Loop Error] {le}")

@@ -274,6 +274,13 @@ games = {}
 @socketio.on('connect')
 def handle_connect():
     print("Client connected:", request.sid)
+    # Supabase 변경 감지 폴러 시작 (최초 1회만 실행됨)
+    if HAS_MONITOR:
+        try:
+            from monitor_view import _start_supabase_polling
+            _start_supabase_polling()
+        except Exception as e:
+            print(f"DEBUG: Supabase polling start error: {e}")
 
 @socketio.on('disconnect')
 def handle_disconnect():

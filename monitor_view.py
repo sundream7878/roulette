@@ -79,6 +79,88 @@ event_states = {}
 active_monitoring_urls = {} # { url: boolean }
 monitoring_lock = False # 간단한 락 대용
 
+# ─── [실시간 Supabase 변경 감지 / 폴링] ───────────────────────────────────────
+# 마지막으로 확인한 Supabase 상태를 저장해 변경 여부를 비교합니다.
+_last_supabase_state = {
+    'updated_at': None,
+    'participant_count': -1,
+    'title': None,
+    'prizes': None,
+}
+_supabase_polling_started = False
+
+def _start_supabase_polling():
+    """Supabase 변경 감지 백그라운드 스레드를 최초 1회 시작합니다."""
+    global _supabase_polling_started
+    if _supabase_polling_started:
+        return
+    if not db.supabase:
+        return
+    _supabase_polling_started = True
+    import threading
+    t = threading.Thread(target=_supabase_poll_loop, daemon=True)
+    t.start()
+    print("DEBUG: [Supabase Polling] Background poller started (10s interval)")
+
+def _supabase_poll_loop():
+    """Supabase에서 활성 이벤트 변경을 10초마다 확인하고 변경 시 SocketIO로 브로드캐스트합니다."""
+    import time as _time
+    global _last_supabase_state
+    _time.sleep(5)  # 서버 시작 직후 잠깐 대기
+    while True:
+        try:
+            from comment_dart import socketio
+            if not db.supabase:
+                _time.sleep(30)
+                continue
+
+            # 1. 활성 포스트 조회
+            post_res = db.supabase.table('posts').select('url, title, prizes, winners, updated_at').eq('is_active', True).limit(1).execute()
+            if not post_res.data:
+                _time.sleep(10)
+                continue
+
+            post = post_res.data[0]
+            url = post['url']
+            updated_at = post.get('updated_at')
+            title = post.get('title')
+            prizes = post.get('prizes')
+            winners = post.get('winners')
+
+            # 2. 이벤트 설정 변경 감지 (title/prizes 변경)
+            if title != _last_supabase_state['title'] or prizes != _last_supabase_state['prizes']:
+                print(f"DEBUG: [Supabase Poll] Event settings changed → broadcasting")
+                socketio.emit('update_event_settings', {
+                    'url': url,
+                    'title': title,
+                    'prizes': prizes,
+                    'winners': winners,
+                })
+                _last_supabase_state['title'] = title
+                _last_supabase_state['prizes'] = prizes
+
+            # 3. 참가자 변경 감지
+            p_res = db.supabase.table('participants').select('author, count').eq('url', url).execute()
+            participants = p_res.data or []
+            if len(participants) != _last_supabase_state['participant_count'] or updated_at != _last_supabase_state['updated_at']:
+                if participants:
+                    p_list = sorted([(r['author'], r['count']) for r in participants], key=lambda x: x[0])
+                    print(f"DEBUG: [Supabase Poll] Participants changed ({len(p_list)}명) → broadcasting")
+                    socketio.emit('update_participants', {
+                        'participants': p_list,
+                        'total_comments': len(p_list),
+                        'event_id': 'supabase_poll'
+                    })
+                _last_supabase_state['participant_count'] = len(participants)
+                _last_supabase_state['updated_at'] = updated_at
+
+        except Exception as e:
+            print(f"DEBUG: [Supabase Poll Error] {e}")
+        _time.sleep(10)  # 10초마다 체크
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+
 
 def sync_participants_with_whitelist(url, existing_participants, all_commenters):
     """

@@ -122,6 +122,9 @@ def update_event_settings():
         # participants_dict를 None으로 주어 기존 명단이 삭제되지 않도록 함
         db.save_data(url, None, '', title=title, prizes=prizes, allow_duplicates=allow_duplicates)
         
+        # [추가] 설정 저장 시 해당 이벤트를 활성화 (룰렛 화면에 즉시 반영되도록)
+        set_active_url(url)
+        
         # 메모리 상태 업데이트
         for eid, state in event_states.items():
             if state.get('url') == url:

@@ -115,13 +115,23 @@ class CommentDatabase:
 
     def clear_data(self, url: str):
         """특정 URL의 데이터를 삭제 (새로운 수집 시 리셋용)"""
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM participants WHERE url = ?", (url,))
-            cursor.execute("DELETE FROM commenters WHERE url = ?", (url,))
-            cursor.execute("DELETE FROM posts WHERE url = ?", (url,))
-            conn.commit()
-            print(f"DEBUG: [DB] Cleared data for URL: {url}")
+        if self.supabase:
+            try:
+                self.supabase.table("participants").delete().eq("url", url).execute()
+                self.supabase.table("commenters").delete().eq("url", url).execute()
+                self.supabase.table("posts").delete().eq("url", url).execute()
+                print(f"DEBUG: [Supabase] Cleared data for URL: {url}")
+            except Exception as e:
+                print(f"DEBUG: [Supabase Error] clear_data: {e}")
+        
+        # 로컬 DB 저장은 생략
+        # with self._get_connection() as conn:
+        #     cursor = conn.cursor()
+        #     cursor.execute("DELETE FROM participants WHERE url = ?", (url,))
+        #     cursor.execute("DELETE FROM commenters WHERE url = ?", (url,))
+        #     cursor.execute("DELETE FROM posts WHERE url = ?", (url,))
+        #     conn.commit()
+        #     print(f"DEBUG: [DB] Cleared data for URL: {url}")
 
     def _sync_to_supabase(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
                          all_commenters: List[str] = None, title: str = None, prizes: str = None, 
@@ -163,11 +173,11 @@ class CommentDatabase:
 
     def save_data(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
                   all_commenters: List[str] = None, title: str = None, prizes: str = None, winners: str = None, allow_duplicates: bool = None):
-        """수집된 데이터를 저장하거나 업데이트 (Local + Supabase)"""
-        # 로컬 저장
-        self._save_to_local(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
+        """수집된 데이터를 저장하거나 업데이트 (Supabase 최우선)"""
+        # 로컬 DB 저장은 생략 (사용자 요청)
+        # self._save_to_local(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
         
-        # Supabase 동기화
+        # Supabase 동기화 (단독 수행)
         self._sync_to_supabase(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
 
     def _save_to_local(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
@@ -201,24 +211,22 @@ class CommentDatabase:
             conn.commit()
             print(f"DEBUG: [Local DB] Saved data for URL: {url}")
 
-    def save_data(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
-                  all_commenters: List[str] = None, title: str = None, prizes: str = None, winners: str = None, allow_duplicates: bool = None):
-        """수집된 데이터를 저장하거나 업데이트 (Local + Supabase)"""
-        self._save_to_local(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
-        self._sync_to_supabase(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
+    # 중복된 save_data 제거
 
     def set_active_url(self, url: str):
-        """특정 URL을 활성 이벤트로 설정 (Local + Supabase)"""
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE posts SET is_active = 0")
-            cursor.execute("UPDATE posts SET is_active = 1 WHERE url = ?", (url,))
-            conn.commit()
-            print(f"DEBUG: [Local DB] Set active URL: {url}")
+        """특정 URL을 활성 이벤트로 설정 (Supabase 최우선)"""
+        # 로컬 DB 저장은 생략
+        # with self._get_connection() as conn:
+        #     cursor = conn.cursor()
+        #     cursor.execute("UPDATE posts SET is_active = 0")
+        #     cursor.execute("UPDATE posts SET is_active = 1 WHERE url = ?", (url,))
+        #     conn.commit()
+        #     print(f"DEBUG: [Local DB] Set active URL: {url}")
 
         if self.supabase:
             try:
-                self.supabase.table("posts").update({"is_active": False}).execute()
+                # Supabase requires a WHERE clause for updates. We use a dummy .neq() to satisfy this.
+                self.supabase.table("posts").update({"is_active": False}).neq("url", "dummy_bypass_string").execute()
                 self.supabase.table("posts").update({"is_active": True}).eq("url", url).execute()
                 print(f"DEBUG: [Supabase] Active URL set: {url}")
             except Exception as e:
@@ -246,10 +254,18 @@ class CommentDatabase:
 
     def update_timestamp(self, url: str):
         """특정 URL의 updated_at 필드를 현재 시간으로 갱신합니다."""
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE posts SET updated_at = ? WHERE url = ?', (datetime.now(), url))
-            conn.commit()
+        if self.supabase:
+            try:
+                self.supabase.table("posts").update({"updated_at": datetime.now().isoformat()}).eq("url", url).execute()
+                print(f"DEBUG: [Supabase] Updated timestamp for URL: {url}")
+            except Exception as e:
+                print(f"DEBUG: [Supabase Error] update_timestamp: {e}")
+        
+        # 로컬 DB 통신 생략
+        # with self._get_connection() as conn:
+        #     cursor = conn.cursor()
+        #     cursor.execute('UPDATE posts SET updated_at = ? WHERE url = ?', (datetime.now(), url))
+        #     conn.commit()
 
     def get_data(self, url: str) -> Tuple[Dict[str, int], List[str], str, str, str, str, bool]:
         """특정 URL의 저장된 데이터 조회 (Supabase 우선)"""

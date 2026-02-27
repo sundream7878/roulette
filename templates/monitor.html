@@ -1167,14 +1167,26 @@
                 .then(r => r.json()).then(data => { if (!data.error) alert('저장되었습니다.'); });
         }
 
+        let _lastKnownCommentersCount = -1;
+
         socket.on('update_participants', (data) => {
             console.log('Socket Update:', data);
+            const newTotal = data.total_comments || 0;
+
+            // 새 댓글 작성자가 생겼을 때만 새로고침 (무한루프 방지)
+            if (newTotal !== _lastKnownCommentersCount && _lastKnownCommentersCount !== -1) {
+                console.log('새 댓글 감지! 자동 새로고침...');
+                window.location.reload();
+                return;
+            }
+
+            // 첫 수신 시에는 현재 상태로 초기화
+            _lastKnownCommentersCount = newTotal;
             currentParticipants = data.participants || [];
-            // [수정] 전체 활동 내역이 빈 값으로 올 경우 기존 데이터를 유지하여 화면 상실 방지
             if (data.full_commenter_list && data.full_commenter_list.length > 0) {
                 currentFullFeed = data.full_commenter_list;
             }
-            updateStats(data.total_comments, currentParticipants.length);
+            updateStats(newTotal, currentParticipants.length);
             updateListUI();
             if (isMonitoring) showStatus('실시간 수집 중... (' + new Date().toLocaleTimeString() + ')', 'success');
         });

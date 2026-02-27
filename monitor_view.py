@@ -297,7 +297,8 @@ def fetch_comments_route():
     data = request.json
     url = normalize_url(data.get('url', ''))
     incremental = data.get('incremental', False)
-    event_id = data.get('event_id', 'default_event') # 이벤트 격리용 키
+    # [수정] 어드민 페이지는 단일 세션으로 동작하므로 고정 ID 사용 (격리 필요시 URL 기반)
+    event_id = 'admin_event' 
     
     if not url:
         return jsonify({'error': 'URL이 필요합니다.'}), 400
@@ -514,93 +515,104 @@ def start_background_monitoring(url):
     
     def monitor_loop():
         scraper_inner = NaverCommentMonitor(use_selenium=False) # 백그라운드는 API 위주로 빠르게
+        log_file = os.path.join(BASE_DIR, "monitor_debug.log")
         
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"\n[{datetime.now()}] Background monitoring started for {url}\n")
+
         while url in active_monitoring_urls:
             try:
                 # 해당 URL을 사용하는 모든 이벤트들의 상태 확인 및 업데이트
                 target_events = [eid for eid, state in event_states.items() if state.get('url') == url]
                 
                 if not target_events:
-                    print(f"DEBUG: [Background] No active events for {url}. Stopping.")
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"[{datetime.now()}] No target events for {url}. Stopping.\n")
                     active_monitoring_urls.pop(url, None)
                     break
+                
+                # 매 루프마다 가벼운 로그
+                # with open(log_file, "a", encoding="utf-8") as f:
+                #    f.write(f"[{datetime.now()}] Polling Naver for {url}...\n")
                 
                 for eid in target_events:
                     state = event_states[eid]
                     last_id = state.get('last_id')
                     
-                    new_comments = scraper_inner.get_new_comments(url, last_comment_id=last_id)
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"[{datetime.now()}] [{eid}] Polling Naver (last_id: {last_id})...\n")
+                    
+                    try:
+                        new_comments = scraper_inner.get_new_comments(url, last_comment_id=last_id)
+                    except Exception as ge:
+                        with open(log_file, "a", encoding="utf-8") as f:
+                            f.write(f"[{datetime.now()}] [{eid}] Scraper error: {ge}\n")
+                        continue
                     
                     if new_comments:
-                        print(f"DEBUG: [Background] Found {len(new_comments)} new comments for event {eid}")
-                        seen_ids = state.setdefault('seen_ids', set())
+                        processed_count = len(new_comments)
+                        with open(log_file, "a", encoding="utf-8") as f:
+                            f.write(f"[{datetime.now()}] [{eid}] Found {processed_count} new comments.\n")
                         
+                        seen_ids = state.setdefault('seen_ids', set())
                         allowed_list = get_allowed_list()
                         added_count = 0
+                        
                         for c in new_comments:
                             cid = c.get('comment_id')
                             if cid not in seen_ids:
                                 seen_ids.add(cid)
                                 writer = c.get('author_nickname') or c.get('author_id')
                                 if writer and writer != 'None':
-                                    # 모든 작성자 추적
                                     all_commenters = state.setdefault('all_commenters', set())
                                     all_commenters.add(writer)
-                                    
-                                    # 화이트리스트 체크
                                     if writer in allowed_list:
                                         if writer not in state['participants']:
                                             state['participants'][writer] = allowed_list[writer]
                                             added_count += 1
                         
-                        any_new_commenter = False
-                        if added_count > 0:
-                            # 마지막 ID 업데이트
-                            for last_c in reversed(new_comments):
-                                cid = last_c.get('comment_id', '')
-                                if cid and not cid.startswith('selenium_'):
-                                    state['last_id'] = cid
-                                    break
-                            
-                            # DB 동기화
-                            db.save_data(url, state['participants'], state['last_id'], list(all_commenters))
-                            any_new_commenter = True
+                        # 마지막 ID 업데이트
+                        for last_c in reversed(new_comments):
+                            cid = last_c.get('comment_id', '')
+                            if cid and not cid.startswith('selenium_'):
+                                state['last_id'] = cid
+                                break
+                        
+                        # DB 동기화 (비동기)
+                        db.save_data(url, state['participants'], state['last_id'], list(state.get('all_commenters', [])))
 
-                        # 새 댓글 작성자가 추가됐는지 확인 (화이트리스트 여부 관계없이)
-                        new_commenter_count = len(state.get('all_commenters', set()))
-                        if new_commenter_count != state.get('_last_broadcast_commenter_count', -1):
-                            any_new_commenter = True
-                            state['_last_broadcast_commenter_count'] = new_commenter_count
+                        # 무조건 업데이트 전송 (UI 갱신을 위해)
+                        p_list_for_roulette = [(name, int(count)) for name, count in state['participants'].items()]
+                        p_list_for_roulette.sort(key=lambda x: x[0])
 
-                        if any_new_commenter:
-                            # UI 업데이트 소켓 전송
-                            # 룰렛용 명단 [(이름, 티켓수), ...]
-                            p_list_for_roulette = [(name, int(count)) for name, count in state['participants'].items()]
-                            p_list_for_roulette.sort(key=lambda x: x[0])
-
-                            # 전체 명단 데이터 준비
-                            full_commenters_data = []
-                            all_commenters = state.setdefault('all_commenters', set())
-                            allowed_list = get_allowed_list()
-                            
-                            for name in sorted(list(all_commenters)):
-                                full_commenters_data.append({
-                                    'name': name,
-                                    'is_whitelisted': name in allowed_list,
-                                    'tickets': allowed_list.get(name, 0)
-                                })
-
-                            socketio.emit('update_participants', {
-                                'participants': p_list_for_roulette,
-                                'full_commenter_list': full_commenters_data,
-                                'total_comments': len(all_commenters),
-                                'event_id': eid,
-                                'new_count': added_count
+                        full_commenters_data = []
+                        all_commenters_list = sorted(list(state.get('all_commenters', set())))
+                        
+                        for name in all_commenters_list:
+                            full_commenters_data.append({
+                                'name': name,
+                                'is_whitelisted': name in allowed_list,
+                                'tickets': allowed_list.get(name, 0)
                             })
-                            
-                            # 룰렛용 파일 동기화
-                            if added_count > 0:
-                                sync_files(state['participants'], state['last_id'])
+
+                        socketio.emit('update_participants', {
+                            'participants': p_list_for_roulette,
+                            'full_commenter_list': full_commenters_data,
+                            'total_comments': len(all_commenters_list),
+                            'event_id': eid,
+                            'new_count': added_count
+                        })
+                        
+                        with open(log_file, "a", encoding="utf-8") as f:
+                            f.write(f"[{datetime.now()}] [{eid}] Emitted update. Total commenters: {len(all_commenters_list)}\n")
+                        
+                        if added_count > 0:
+                            sync_files(state['participants'], state['last_id'])
+                    else:
+                        # 댓글이 없는 경우에도 주기적으로 생존 신고 (디버깅용)
+                        if int(time.time()) % 30 == 0:
+                            with open(log_file, "a", encoding="utf-8") as f:
+                                f.write(f"[{datetime.now()}] [{eid}] Loop alive, no new comments.\n")
 
             except Exception as le:
                 print(f"DEBUG: [Background Loop Error] {le}")

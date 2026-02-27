@@ -1167,26 +1167,37 @@
                 .then(r => r.json()).then(data => { if (!data.error) alert('저장되었습니다.'); });
         }
 
-        let _lastKnownCommentersCount = -1;
+        let _lastDataHash = null;
 
         socket.on('update_participants', (data) => {
-            console.log('Socket Update:', data);
-            const newTotal = data.total_comments || 0;
+            console.log('Socket Update received:', data);
 
-            // 새 댓글 작성자가 생겼을 때만 새로고침 (무한루프 방지)
-            if (newTotal !== _lastKnownCommentersCount && _lastKnownCommentersCount !== -1) {
-                console.log('새 댓글 감지! 자동 새로고침...');
+            // 데이터 변화를 감지하기 위해 JSON 문자열 비교
+            const currentDataHash = JSON.stringify(data.participants || []);
+
+            if (_lastDataHash !== null && currentDataHash !== _lastDataHash) {
+                console.log('참가자 데이터 변경 감지! 자동 새로고침...');
                 window.location.reload();
                 return;
             }
 
-            // 첫 수신 시에는 현재 상태로 초기화
-            _lastKnownCommentersCount = newTotal;
+            // 전체 댓글 수도 체크 (정상 참가자 외의 댓글 포함)
+            const newTotalCount = data.total_comments || 0;
+            if (window._lastTotalCount !== undefined && newTotalCount > window._lastTotalCount) {
+                console.log('새 댓글 작성자 감지! 자동 새로고침...');
+                window.location.reload();
+                return;
+            }
+
+            // 초기값 설정
+            _lastDataHash = currentDataHash;
+            window._lastTotalCount = newTotalCount;
+
             currentParticipants = data.participants || [];
             if (data.full_commenter_list && data.full_commenter_list.length > 0) {
                 currentFullFeed = data.full_commenter_list;
             }
-            updateStats(newTotal, currentParticipants.length);
+            updateStats(newTotalCount, currentParticipants.length);
             updateListUI();
             if (isMonitoring) showStatus('실시간 수집 중... (' + new Date().toLocaleTimeString() + ')', 'success');
         });

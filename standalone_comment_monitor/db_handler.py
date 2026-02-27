@@ -135,51 +135,57 @@ class CommentDatabase:
         #     conn.commit()
         #     print(f"DEBUG: [DB] Cleared data for URL: {url}")
 
-    def _sync_to_supabase(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
-                         all_commenters: List[str] = None, title: str = None, prizes: str = None, 
-                         winners: str = None, allow_duplicates: bool = None):
-        """Supabase로 데이터 동기화"""
-        if not self.supabase: return
-
+    def _sync_to_supabase_bg(self, url: str, participants_dict, last_comment_id, 
+                              all_commenters, title, prizes, winners, allow_duplicates):
+        """Supabase 동기화 - 백그라운드 스레드에서 실행 (블로킹 방지)"""
+        if not self.supabase:
+            return
         try:
-            # 1. posts 테이블 업데이트 (upsert)
-            post_data = {
-                "url": url,
-                "updated_at": datetime.now().isoformat()
-            }
+            # 1. posts 테이블 upsert
+            post_data = {"url": url, "updated_at": datetime.now().isoformat()}
             if title is not None: post_data["title"] = title
             if prizes is not None: post_data["prizes"] = prizes
             if winners is not None: post_data["winners"] = winners
             if allow_duplicates is not None: post_data["allow_duplicates"] = allow_duplicates
-            if last_comment_id and last_comment_id != '': post_data["last_comment_id"] = last_comment_id
-
+            if last_comment_id and last_comment_id != '':
+                post_data["last_comment_id"] = last_comment_id
             self.supabase.table("posts").upsert(post_data).execute()
 
-            # 2. participants 테이블 업데이트
+            # 2. participants 테이블 - upsert (INSERT OR REPLACE 방식)
             if participants_dict is not None:
-                # 기존 데이터 삭제 후 삽입 (Supabase는 delete + insert 가 가장 확실)
-                self.supabase.table("participants").delete().eq("url", url).execute()
                 if participants_dict:
-                    p_batch = [{"url": url, "author": author, "count": count} for author, count in participants_dict.items()]
-                    self.supabase.table("participants").insert(p_batch).execute()
+                    p_batch = [{"url": url, "author": a, "count": c} for a, c in participants_dict.items()]
+                    self.supabase.table("participants").upsert(p_batch).execute()
+                else:
+                    # 빈 dict면 해당 URL 참가자 전체 삭제
+                    self.supabase.table("participants").delete().eq("url", url).execute()
 
-            # 3. commenters 테이블 업데이트
+            # 3. commenters 테이블 - upsert (중복 무시)
             if all_commenters:
-                # Insert or ignore (upsert with unique constraint)
-                c_batch = [{"url": url, "author": author} for author in all_commenters]
+                c_batch = [{"url": url, "author": a} for a in all_commenters]
                 self.supabase.table("commenters").upsert(c_batch).execute()
 
-            print(f"DEBUG: [Supabase Sync] Successfully synced data for {url}")
         except Exception as e:
-            print(f"DEBUG: [Supabase Sync Error] {e}")
+            print(f"DEBUG: [Supabase BG Sync Error] {e}")
 
-    def save_data(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
-                  all_commenters: List[str] = None, title: str = None, prizes: str = None, winners: str = None, allow_duplicates: bool = None):
-        """수집된 데이터를 저장하거나 업데이트 (Supabase 최우선)"""
-        # 로컬 DB 저장은 생략 (사용자 요청)
-        # self._save_to_local(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
-        
-        # Supabase 동기화 (단독 수행)
+    def _sync_to_supabase(self, url: str, participants_dict, last_comment_id, 
+                          all_commenters=None, title=None, prizes=None, 
+                          winners=None, allow_duplicates=None):
+        """Supabase 동기화 - 백그라운드 스레드로 즉시 반환 (블로킹 없음)"""
+        if not self.supabase:
+            return
+        import threading
+        t = threading.Thread(
+            target=self._sync_to_supabase_bg,
+            args=(url, participants_dict, last_comment_id, all_commenters,
+                  title, prizes, winners, allow_duplicates),
+            daemon=True
+        )
+        t.start()
+
+    def save_data(self, url: str, participants_dict, last_comment_id,
+                  all_commenters=None, title=None, prizes=None, winners=None, allow_duplicates=None):
+        """수집된 데이터 저장 - Supabase 비동기 저장 (블로킹 없음)"""
         self._sync_to_supabase(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
 
     def _save_to_local(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 

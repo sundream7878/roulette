@@ -814,6 +814,7 @@
 
             socket.on('start_game', function (data) {
                 console.log('게임 시작:', data);
+                gameIsActive = true; // 룰릿 회전 중 → 자동 새로고침 안 함
                 if (document.getElementById('start-button')) {
                     document.getElementById('start-button').disabled = true;
                 }
@@ -922,6 +923,7 @@
             });
 
             socket.on('update_winner', function (data) {
+                gameIsActive = false; // 게임 종료 → 이제 자동 새로고침 허용
                 stopAllSounds();
 
                 // winner 요소 null 체크
@@ -1028,6 +1030,7 @@
             });
 
             socket.on('game_reset_complete', function () {
+                gameIsActive = false; // 리셋 → 자동 새로고침 허용
                 console.log("게임 리셋 완료");
                 if (document.getElementById('start-button')) {
                     document.getElementById('start-button').disabled = false;
@@ -1240,10 +1243,16 @@
                 }
             }
 
+            // 게임이 돌고 있는지 추적하는 플래그
+            let gameIsActive = false;
+
             socket.on('update_participants', function (data) {
-                console.log('실시간 참가자 업데이트 수신:', data);
-                if (data.participants) {
-                    updateParticipantsUI(data.participants);
+                console.log('참가자 변경 감지 → 자동 새로고침', data);
+                if (!gameIsActive) {
+                    window.location.reload();
+                } else {
+                    // 게임 중일 때는 DOM만 업데이트
+                    if (data.participants) updateParticipantsUI(data.participants);
                 }
             });
 
@@ -1258,37 +1267,19 @@
             }
 
             socket.on('update_event_settings', (data) => {
-                console.log('DEBUG: Event settings updated:', data);
-                if (data.title) {
-                    document.getElementById('event-title-display').innerText = data.title;
-                }
-
-                // 사은품 또는 당첨자 업데이트 시 목록 다시 그리기
-                if (data.prizes !== undefined || data.winners !== undefined) {
-                    const prizeListEl = document.getElementById('prize-list');
-                    if (!prizeListEl) return;
-
-                    // 데이터 속성 업데이트 (null 방지)
-                    if (data.prizes !== undefined) prizeListEl.dataset.prizes = data.prizes || '';
-                    if (data.winners !== undefined) prizeListEl.dataset.winners = data.winners || '';
-
-                    const currentPrizes = prizeListEl.dataset.prizes || '';
-                    const currentWinners = prizeListEl.dataset.winners || '';
-
-                    if (currentPrizes.trim()) {
-                        const pList = currentPrizes.split('\n').map(p => p.trim()).filter(p => p);
-                        const wList = currentWinners ? currentWinners.split(',').map(w => w.trim()).filter(w => w) : [];
-
-                        prizeListEl.innerHTML = pList.map((prize, index) => {
-                            let winnerHtml = '';
-                            if (index < wList.length) {
-                                winnerHtml = `<span class="winner-badge">🏆 ${wList[index]}</span>`;
-                            }
-                            return `<div class="prize-item"><span>${prize}</span>${winnerHtml}</div>`;
-                        }).join('');
-                        console.log('사은품/당첨자 목록 UI 갱신 완료');
-                    } else {
-                        prizeListEl.innerHTML = '<div class="prize-item" style="color: #999;">등록된 사은품이 없습니다.</div>';
+                console.log('이벤트 설정 변경 감지 → 자동 새로고침', data);
+                if (!gameIsActive) {
+                    window.location.reload();
+                } else {
+                    // 게임 중일 때는 DOM만 업데이트
+                    if (data.title) document.getElementById('event-title-display').innerText = data.title;
+                    if (data.prizes !== undefined) {
+                        const prizeListEl = document.getElementById('prize-list');
+                        if (prizeListEl && data.prizes) {
+                            const pList = data.prizes.split('\n').map(p => p.trim()).filter(p => p);
+                            const wList = data.winners ? data.winners.split(',').map(w => w.trim()).filter(w => w) : [];
+                            prizeListEl.innerHTML = pList.map((prize, i) => `<div class="prize-item"><span>${prize}</span>${i < wList.length ? `<span class="winner-badge">🏆 ${wList[i]}</span>` : ''}</div>`).join('');
+                        }
                     }
                 }
             });

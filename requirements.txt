@@ -7,7 +7,5 @@ WTForms==3.1.1
 requests==2.31.0
 gunicorn==21.2.0
 selenium==4.15.2
-requests
-supabase==2.7.4
+supabase>=2.9.0
 python-dotenv==1.0.1
-httpx==0.27.0

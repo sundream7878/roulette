@@ -147,6 +147,26 @@ def _supabase_poll_loop():
     global _last_supabase_state
     _time.sleep(3)  # 서버 초기화 대기
 
+    # ── 첫 번째 루프: 현재 DB 상태를 조용히 읽어서 기준값으로 설정 ──
+    # 이렇게 해야 서버 재시작 직후 "변경 없음인데 emit"하는 오작동을 막을 수 있음
+    try:
+        if db.supabase:
+            post_res = db.supabase.table('posts').select('url, title, prizes, winners, updated_at').eq('is_active', True).limit(1).execute()
+            if post_res.data:
+                post = post_res.data[0]
+                url = post['url']
+                p_res = db.supabase.table('participants').select('author').eq('url', url).execute()
+                _last_supabase_state.update({
+                    'updated_at': post.get('updated_at'),
+                    'title': post.get('title'),
+                    'prizes': post.get('prizes'),
+                    'active_url': url,
+                    'participant_count': len(p_res.data) if p_res.data else 0,
+                })
+                print(f"DEBUG: [Realtime] Initial state loaded: {len(p_res.data or [])} participants, title={post.get('title')}")
+    except Exception as e:
+        print(f"DEBUG: [Realtime] Init error: {e}")
+
     while True:
         try:
             from comment_dart import socketio
@@ -154,7 +174,7 @@ def _supabase_poll_loop():
                 _time.sleep(5)
                 continue
 
-            # 활성 포스트의 updated_at만 빠르게 조회
+            # 활성 포스트 조회
             post_res = db.supabase.table('posts').select('url, title, prizes, winners, updated_at').eq('is_active', True).limit(1).execute()
             if not post_res.data:
                 _time.sleep(2)
@@ -167,48 +187,39 @@ def _supabase_poll_loop():
             prizes = post.get('prizes')
             winners = post.get('winners')
 
-            # updated_at이 바뀌었거나 title/prizes가 바뀌면 즉시 브로드캐스트
-            changed = (
+            # 이전 상태와 비교해서 실제 변경이 있을 때만 브로드캐스트
+            settings_changed = (
                 updated_at != _last_supabase_state['updated_at'] or
                 title != _last_supabase_state['title'] or
                 prizes != _last_supabase_state['prizes'] or
                 url != _last_supabase_state['active_url']
             )
 
-            if changed:
-                print(f"DEBUG: [Realtime] Change detected! Broadcasting instantly...")
+            if settings_changed:
+                print(f"DEBUG: [Realtime] Settings changed! Broadcasting...")
                 socketio.emit('update_event_settings', {
                     'url': url, 'title': title, 'prizes': prizes, 'winners': winners,
                 })
                 _last_supabase_state['title'] = title
                 _last_supabase_state['prizes'] = prizes
                 _last_supabase_state['active_url'] = url
-
-                # 참가자도 함께 업데이트
-                p_res = db.supabase.table('participants').select('author, count').eq('url', url).execute()
-                participants = p_res.data or []
-                if participants:
-                    p_list = sorted([(r['author'], r['count']) for r in participants], key=lambda x: x[0])
-                    socketio.emit('update_participants', {
-                        'participants': p_list, 'total_comments': len(p_list), 'event_id': 'realtime'
-                    })
-                _last_supabase_state['participant_count'] = len(participants)
                 _last_supabase_state['updated_at'] = updated_at
-            else:
-                # 변경 없을 때는 참가자 수만 빠르게 체크
-                p_res = db.supabase.table('participants').select('author, count').eq('url', url).execute()
-                participants = p_res.data or []
-                if len(participants) != _last_supabase_state['participant_count']:
-                    p_list = sorted([(r['author'], r['count']) for r in participants], key=lambda x: x[0])
-                    print(f"DEBUG: [Realtime] Participants changed ({len(p_list)}명) → broadcasting")
-                    socketio.emit('update_participants', {
-                        'participants': p_list, 'total_comments': len(p_list), 'event_id': 'realtime'
-                    })
-                    _last_supabase_state['participant_count'] = len(participants)
+
+            # 참가자 수 변경은 별도로 체크 (updated_at 변경 없이도 추가될 수 있음)
+            p_res = db.supabase.table('participants').select('author, count').eq('url', url).execute()
+            participants = p_res.data or []
+            if len(participants) != _last_supabase_state['participant_count']:
+                p_list = sorted([(r['author'], r['count']) for r in participants], key=lambda x: x[0])
+                print(f"DEBUG: [Realtime] Participants changed ({len(p_list)}명) → broadcasting")
+                socketio.emit('update_participants', {
+                    'participants': p_list, 'total_comments': len(p_list), 'event_id': 'realtime'
+                })
+                _last_supabase_state['participant_count'] = len(participants)
 
         except Exception as e:
             print(f"DEBUG: [Realtime Poll Error] {e}")
-        _time.sleep(2)  # 2초마다 체크 (사실상 즉시 반응)
+        _time.sleep(2)
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 

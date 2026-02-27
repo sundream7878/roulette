@@ -25,6 +25,8 @@ class CommentDatabase:
         self.supabase: Client = None
         
         if self.supabase_url and self.supabase_key:
+            self.supabase_url = self.supabase_url.strip().strip("'").strip('"')
+            self.supabase_key = self.supabase_key.strip().strip("'").strip('"')
             try:
                 self.supabase = create_client(self.supabase_url, self.supabase_key)
                 print(f"DEBUG: [Supabase] Client initialized for {self.supabase_url}")

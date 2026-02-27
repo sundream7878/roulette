@@ -4,19 +4,16 @@ import random
 import datetime
 import time
 
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user
 from wtforms import Form, StringField, PasswordField, SubmitField
 from wtforms.validators import DataRequired
 
 from flask_socketio import SocketIO
 
-# [추가] 로컬 전용 모니터링 블루프린트 임포트
-try:
-    from monitor_view import monitor_bp, db, sync_files, get_allowed_list, ACTIVE_URL_FILE, normalize_url
-    HAS_MONITOR = True
-except ImportError:
-    HAS_MONITOR = False
+# 로컬 전용 모니터링 블루프린트 임포트 (이제 Render에서도 필수)
+from monitor_view import monitor_bp, db, sync_files, get_allowed_list, ACTIVE_URL_FILE, normalize_url
+HAS_MONITOR = True
 
 def get_active_url():
     """현재 활성화된 이벤트 URL을 가져옵니다."""
@@ -37,6 +34,32 @@ def get_active_url():
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
+
+@app.after_request
+def add_header(response):
+    """모든 응답에 캐시 방지 헤더를 추가하여 브라우저/CDN이 과거 데이터를 보여주는 것을 막습니다."""
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+@app.route('/debug')
+def debug_view():
+    """Render 환경 디버깅을 위한 상태 반환"""
+    import os
+    info = {
+        "supabase_url": os.getenv('SUPABASE_URL', '')[:20] + '...',
+        "has_supabase_key": bool(os.getenv('SUPABASE_KEY')),
+        "has_monitor": HAS_MONITOR,
+        "db_is_supabase": bool(db.supabase) if HAS_MONITOR else False
+    }
+    if HAS_MONITOR and db.supabase:
+        try:
+            res = db.supabase.table('posts').select('url, title, prizes, is_active').order('updated_at', desc=True).limit(2).execute()
+            info['recent_posts'] = res.data
+        except Exception as e:
+            info['supabase_error'] = str(e)
+    return jsonify(info)
 
 # [추가] 모니터링 블루프린트 등록
 if HAS_MONITOR:

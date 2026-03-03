@@ -3,6 +3,7 @@ import time
 from flask import Blueprint, render_template, request, jsonify
 from standalone_comment_monitor.scraper import NaverCommentMonitor
 from standalone_comment_monitor.db_handler import CommentDatabase
+from datetime import datetime
 try:
     from standalone_comment_monitor.selenium_scraper import SeleniumCommentScraper
 except ImportError:
@@ -43,8 +44,32 @@ def normalize_url(url):
         return f"https://cafe.naver.com/ca-fe/web/cafes/{clubid}/articles/{articleid}"
     return url.strip()
 
-def get_allowed_list():
+def get_allowed_list(url=None):
     """명단을 {이름: 티켓수} 사전 형식으로 파싱합니다."""
+    # URL이 있으면 DB에서 가져오기 우선
+    if url:
+        try:
+            _, _, _, _, _, _, _, allowed_list_content = db.get_data(url)
+            if allowed_list_content:
+                allowed = {}
+                for line in allowed_list_content.splitlines():
+                    line = line.strip()
+                    if not line: continue
+                    if ',' in line:
+                        parts = line.split(',', 1)
+                        name = parts[0].strip()
+                        try:
+                            tickets = int(parts[1].strip())
+                        except:
+                            tickets = 1
+                        allowed[name] = tickets
+                    else:
+                        allowed[line] = 1
+                return allowed
+        except Exception as e:
+            print(f"DEBUG: Error getting allowed list from DB for {url}: {e}")
+
+    # URL이 없거나 DB에 없으면 기존 파일 fallback
     if not os.path.exists(ALLOWED_LIST_FILE):
         return {}
     allowed = {}
@@ -124,19 +149,35 @@ def _broadcast_current_state():
             'url': url, 'title': title, 'prizes': prizes, 'winners': winners,
         })
 
-        # 참가자 브로드캐스트
+        # 참가자 및 전체 댓글 데이터 브로드케스트
         p_res = db.supabase.table('participants').select('author, count').eq('url', url).execute()
         participants = p_res.data or []
-        if participants:
-            p_list = sorted([(r['author'], r['count']) for r in participants], key=lambda x: x[0])
-            socketio.emit('update_participants', {
-                'participants': p_list, 'total_comments': len(p_list), 'event_id': 'realtime'
+        
+        # 전체 댓글 작성자 목록 가져오기
+        c_res = db.supabase.table('commenters').select('author').eq('url', url).execute()
+        all_commenters_list = [r['author'] for r in c_res.data] if c_res.data else []
+        
+        allowed_list = get_allowed_list(url)
+        full_commenters_data = []
+        for name in sorted(all_commenters_list):
+            full_commenters_data.append({
+                'name': name,
+                'is_whitelisted': name in allowed_list,
+                'tickets': allowed_list.get(name, 0)
             })
+
+        p_list = sorted([(r['author'], int(r['count'])) for r in participants], key=lambda x: x[0])
+        socketio.emit('update_participants', {
+            'participants': p_list,
+            'full_commenter_list': full_commenters_data,
+            'total_comments': len(all_commenters_list),
+            'event_id': 'realtime'
+        })
 
         # 상태 갱신
         _last_supabase_state.update({
             'updated_at': updated_at, 'title': title, 'prizes': prizes,
-            'participant_count': len(participants), 'active_url': url
+            'participant_count': len(all_commenters_list), 'active_url': url
         })
     except Exception as e:
         print(f"DEBUG: [Realtime Broadcast Error] {e}")
@@ -148,22 +189,24 @@ def _supabase_poll_loop():
     _time.sleep(3)  # 서버 초기화 대기
 
     # ── 첫 번째 루프: 현재 DB 상태를 조용히 읽어서 기준값으로 설정 ──
-    # 이렇게 해야 서버 재시작 직후 "변경 없음인데 emit"하는 오작동을 막을 수 있음
     try:
         if db.supabase:
             post_res = db.supabase.table('posts').select('url, title, prizes, winners, updated_at').eq('is_active', True).limit(1).execute()
             if post_res.data:
                 post = post_res.data[0]
                 url = post['url']
-                p_res = db.supabase.table('participants').select('author').eq('url', url).execute()
+                # 전체 작성자 수를 기준으로 변경 감지
+                c_res = db.supabase.table('commenters').select('author', count='exact').eq('url', url).execute()
+                total_count = c_res.count if hasattr(c_res, 'count') else (len(c_res.data) if c_res.data else 0)
+                
                 _last_supabase_state.update({
                     'updated_at': post.get('updated_at'),
                     'title': post.get('title'),
                     'prizes': post.get('prizes'),
                     'active_url': url,
-                    'participant_count': len(p_res.data) if p_res.data else 0,
+                    'participant_count': total_count,
                 })
-                print(f"DEBUG: [Realtime] Initial state loaded: {len(p_res.data or [])} participants, title={post.get('title')}")
+                print(f"DEBUG: [Realtime] Initial state loaded: {total_count} commenters, title={post.get('title')}")
     except Exception as e:
         print(f"DEBUG: [Realtime] Init error: {e}")
 
@@ -187,7 +230,7 @@ def _supabase_poll_loop():
             prizes = post.get('prizes')
             winners = post.get('winners')
 
-            # 이전 상태와 비교해서 실제 변경이 있을 때만 브로드캐스트
+            # 1. 설정 변경 체크
             settings_changed = (
                 updated_at != _last_supabase_state['updated_at'] or
                 title != _last_supabase_state['title'] or
@@ -200,21 +243,41 @@ def _supabase_poll_loop():
                 socketio.emit('update_event_settings', {
                     'url': url, 'title': title, 'prizes': prizes, 'winners': winners,
                 })
-                _last_supabase_state['title'] = title
-                _last_supabase_state['prizes'] = prizes
-                _last_supabase_state['active_url'] = url
-                _last_supabase_state['updated_at'] = updated_at
+                _last_supabase_state.update({
+                    'title': title, 'prizes': prizes, 'active_url': url, 'updated_at': updated_at
+                })
 
-            # 참가자 수 변경은 별도로 체크 (updated_at 변경 없이도 추가될 수 있음)
+            # 2. 새로운 댓글 작성자(데이터) 변경 체크
+            c_res = db.supabase.table('commenters').select('author').eq('url', url).execute()
+            all_commenters_list = [r['author'] for r in c_res.data] if c_res.data else []
+            current_total_count = len(all_commenters_list)
+
+            # 확정 참가자 목록도 같이 가져오기
             p_res = db.supabase.table('participants').select('author, count').eq('url', url).execute()
             participants = p_res.data or []
-            if len(participants) != _last_supabase_state['participant_count']:
-                p_list = sorted([(r['author'], r['count']) for r in participants], key=lambda x: x[0])
-                print(f"DEBUG: [Realtime] Participants changed ({len(p_list)}명) → broadcasting")
+
+            # 변경 감지 (댓글 수 변동 또는 설정 변경 시 브로드캐스트)
+            if current_total_count != _last_supabase_state['participant_count'] or settings_changed:
+                print(f"DEBUG: [Realtime] Data changed ({current_total_count} commenters) → broadcasting")
+                
+                allowed_list = get_allowed_list(url)
+                full_commenters_data = []
+                for name in sorted(all_commenters_list):
+                    full_commenters_data.append({
+                        'name': name,
+                        'is_whitelisted': name in allowed_list,
+                        'tickets': allowed_list.get(name, 0)
+                    })
+
+                p_list = sorted([(r['author'], int(r['count'])) for r in participants], key=lambda x: x[0])
+                
                 socketio.emit('update_participants', {
-                    'participants': p_list, 'total_comments': len(p_list), 'event_id': 'realtime'
+                    'participants': p_list,
+                    'full_commenter_list': full_commenters_data,
+                    'total_comments': current_total_count,
+                    'event_id': 'realtime'
                 })
-                _last_supabase_state['participant_count'] = len(participants)
+                _last_supabase_state['participant_count'] = current_total_count
 
         except Exception as e:
             print(f"DEBUG: [Realtime Poll Error] {e}")
@@ -228,7 +291,7 @@ def sync_participants_with_whitelist(url, existing_participants, all_commenters)
     이미 수집된 '모든 작성자' 중에서 '사전 명단(화이트리스트)'에 있는 사람을 
     참여자 명단으로 동적으로 업데이트합니다.
     """
-    allowed_list = get_allowed_list()
+    allowed_list = get_allowed_list(url)
     updated = False
     
     for name in all_commenters:
@@ -339,7 +402,7 @@ def fetch_comments_route():
                     with open(LAST_COMMENT_FILE, 'w', encoding='utf-8') as f: f.write('')
             else:
                 # 점진적 수집이지만 메모리에 없을 때 (페이지 새로고침 등)
-                existing_participants, all_c_list, last_comment_id, title, prizes, winners, allow_duplicates = db.get_data(url)
+                existing_participants, all_c_list, last_comment_id, title, prizes, winners, allow_duplicates, _ = db.get_data(url)
             
             event_states[event_id] = {
                 'participants': existing_participants,
@@ -371,7 +434,7 @@ def fetch_comments_route():
 
         
         # 2. 새로운 댓글 분석 및 화이트리스트 필터링
-        allowed_list = get_allowed_list()
+        allowed_list = get_allowed_list(url)
         new_participants_found = 0
         all_commenters = current_state.setdefault('all_commenters', set())
         
@@ -659,7 +722,7 @@ def load_comments():
     try:
         url = normalize_url(url)
         print(f"DEBUG: [Load Request] URL: {url}")
-        participants_dict, all_commenter_list, last_id, title, prizes, winners, allow_duplicates = db.get_data(url)
+        participants_dict, all_commenter_list, last_id, title, prizes, winners, allow_duplicates, _ = db.get_data(url)
         
         if not participants_dict and not all_commenter_list:
             return jsonify({'message': '저장된 데이터가 없습니다.', 'participants': [], 'url': url})
@@ -783,9 +846,23 @@ def get_stored_urls():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@monitor_bp.route('/api/get_allowed_list', methods=['GET'])
+@monitor_bp.route('/api/get_allowed_list', methods=['GET', 'POST'])
 def api_get_allowed_list():
+    # POST요청인 경우 body에서 URL을 가져오고, GET요청인 경우 query parameter에서 가져옴
+    if request.method == 'POST':
+        data = request.json or {}
+    else:
+        data = request.args
+    
+    url = normalize_url(data.get('url', ''))
+    
     try:
+        if url:
+            # DB에서 먼저 조회
+            _, _, _, _, _, _, _, allowed_list_content = db.get_data(url)
+            if allowed_list_content is not None:
+                return jsonify({'content': allowed_list_content})
+        
         if not os.path.exists(ALLOWED_LIST_FILE):
             return jsonify({'content': ''})
         with open(ALLOWED_LIST_FILE, 'r', encoding='utf-8') as f:
@@ -797,9 +874,15 @@ def api_get_allowed_list():
 def api_save_allowed_list():
     data = request.json
     content = data.get('content', '')
+    url = normalize_url(data.get('url', ''))
     try:
+        if url:
+            # DB에 저장하면서 실시간 동기화
+            db.save_data(url, None, None, allowed_list=content)
+            return jsonify({'message': '명단이 DB에 저장되었습니다.'})
+        
         with open(ALLOWED_LIST_FILE, 'w', encoding='utf-8') as f:
             f.write(content)
-        return jsonify({'message': '명단이 저장되었습니다.'})
+        return jsonify({'message': '명단이 파일에 저장되었습니다.'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

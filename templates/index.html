@@ -101,7 +101,8 @@
             justify-content: center;
             align-items: flex-start;
             padding: 20px;
-            max-width: 1200px;
+            max-width: 1600px;
+            width: 100%;
         }
 
         #chart-container {
@@ -356,6 +357,34 @@
             transform: translateY(-2px);
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
+
+        /* 전체 사전 명단 컨테이너 */
+        #all-participants-container {
+            margin-left: 40px;
+            text-align: left;
+            max-height: 600px;
+            overflow-y: auto;
+            min-width: 160px;
+        }
+
+        .all-participant-item {
+            display: flex;
+            align-items: center;
+            margin: 4px 0;
+            font-size: 0.95em;
+            gap: 6px;
+        }
+
+        .confirmed-badge {
+            display: inline-block;
+            font-size: 1em;
+            vertical-align: middle;
+        }
+
+        .all-participant-item.is-confirmed {
+            font-weight: bold;
+            color: #1a5c20;
+        }
     </style>
     <link rel="icon" href="data:,">
 </head>
@@ -423,17 +452,31 @@
             </div>
         </div>
 
-        <div id="legend-container">
-            <div class="legend-item">
-                <span class="legend-color" style="background-color: transparent;"></span>
-                <strong>최종 확정 명단</strong>
+        <!-- 전체 명단 (사전 참여 명단) -->
+        {% set confirmed_set = participants | map(attribute=0) | list %}
+        <div id="all-participants-container">
+            <div style="margin-bottom: 6px;">
+                <strong>📋 전체 명단</strong>
+                <span style="font-size:0.85em; color:#888;">({{ allowed_names | length if allowed_names else 0
+                    }}명)</span>
             </div>
-            {% for p in participants %}
-            <div class="legend-item">
-                <span class="legend-color" style="background-color: {{ colors[loop.index0] }};"></span>
-                {{ p[0] }}
+            <div style="font-size: 0.75em; color: #666; margin-bottom: 8px; padding-left: 5px;">
+                ( 💡 이름 앞에 ✅ 표시가 있는 분들이 확정된 명단입니다. )
+            </div>
+            {% if allowed_names %}
+            {% for name in allowed_names %}
+            <div class="all-participant-item {% if name in confirmed_set %}is-confirmed{% endif %}">
+                {% if name in confirmed_set %}
+                <span class="confirmed-badge">✅</span>
+                {% else %}
+                <span class="confirmed-badge" style="visibility:hidden;">✅</span>
+                {% endif %}
+                <span>{{ name }}</span>
             </div>
             {% endfor %}
+            {% else %}
+            <div style="color:#999; font-size:0.9em;">참여 명단이 없습니다.</div>
+            {% endif %}
         </div>
 
         <!-- 사은품 목록 (오른쪽으로 이동) -->
@@ -1209,7 +1252,7 @@
             });
 
             // 참가자 명단 및 차트 업데이트 함수
-            function updateParticipantsUI(p_list) {
+            function updateParticipantsUI(p_list, full_commenter_list) {
                 if (!p_list) return;
                 console.log('참가자 UI 업데이트 실행:', p_list.length + '명');
 
@@ -1223,23 +1266,29 @@
                     chart.update();
                 }
 
-                // 2. 범례(Legend) 갱신
-                const legendContainer = document.getElementById('legend-container');
-                if (legendContainer) {
-                    let legendHtml = `
-                    <div class="legend-item">
-                        <span class="legend-color" style="background-color: transparent;"></span>
-                        <strong>최종 확정 명단</strong>
-                    </div>`;
-
-                    p_list.forEach((p, index) => {
-                        legendHtml += `
-                        <div class="legend-item">
-                            <span class="legend-color" style="background-color: ${colors[index]};"></span>
-                            ${p[0]}
-                        </div>`;
-                    });
-                    legendContainer.innerHTML = legendHtml;
+                // 2. 전체 명단 갱신
+                const allContainer = document.getElementById('all-participants-container');
+                if (allContainer) {
+                    const confirmedNames = new Set(p_list.map(p => p[0]));
+                    // 템플릿에서 렌더링된 초기 명단을 유지하거나, 서버에서 allowed_names를 따로 받아야 할 수도 있음.
+                    // 현재는 p_list(확정 명단)가 업데이트될 때 ✅ 표시만 실시간으로 갱신하는 방향으로 처리.
+                    const items = allContainer.querySelectorAll('.all-participant-item');
+                    if (items.length > 0) {
+                        items.forEach(item => {
+                            const nameSpan = item.querySelector('span:not(.confirmed-badge)');
+                            if (nameSpan) {
+                                const name = nameSpan.innerText.trim();
+                                const badge = item.querySelector('.confirmed-badge');
+                                if (confirmedNames.has(name)) {
+                                    item.classList.add('is-confirmed');
+                                    if (badge) badge.style.visibility = 'visible';
+                                } else {
+                                    item.classList.remove('is-confirmed');
+                                    if (badge) badge.style.visibility = 'hidden';
+                                }
+                            }
+                        });
+                    }
                 }
             }
 
@@ -1247,12 +1296,20 @@
             let gameIsActive = false;
 
             socket.on('update_participants', function (data) {
-                console.log('참가자 변경 감지 → 자동 새로고침', data);
+                console.log('참가자 변경 감지', data);
                 if (!gameIsActive) {
+                    // 게임 중이 아닐 때는 전체 페이지 새로고침하여 최신 명단 렌더링
+                    console.log('게임 대기 중: 자동 새로고침 실행');
                     window.location.reload();
                 } else {
-                    // 게임 중일 때는 DOM만 업데이트
-                    if (data.participants) updateParticipantsUI(data.participants);
+                    // 게임 중일 때는 차트만 업데이트 (새로고침 방지)
+                    if (data.participants) {
+                        try {
+                            if (typeof updateParticipantsUI === 'function') {
+                                updateParticipantsUI(data.participants, data.full_commenter_list);
+                            }
+                        } catch (e) { console.error('UI 업데이트 오류', e); }
+                    }
                 }
             });
 

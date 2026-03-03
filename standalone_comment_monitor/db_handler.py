@@ -52,6 +52,7 @@ class CommentDatabase:
                     title TEXT,
                     prizes TEXT,
                     winners TEXT,
+                    allowed_list TEXT,
                     allow_duplicates BOOLEAN DEFAULT 1,
                     is_active BOOLEAN DEFAULT 0,
                     last_comment_id TEXT,
@@ -78,6 +79,12 @@ class CommentDatabase:
                 try:
                     cursor.execute("ALTER TABLE posts ADD COLUMN winners TEXT")
                     print("DEBUG: [DB Migration] Added 'winners' column to posts table.")
+                except Exception as e:
+                    print(f"DEBUG: [DB Migration Error] {e}")
+            if 'allowed_list' not in columns:
+                try:
+                    cursor.execute("ALTER TABLE posts ADD COLUMN allowed_list TEXT")
+                    print("DEBUG: [DB Migration] Added 'allowed_list' column to posts table.")
                 except Exception as e:
                     print(f"DEBUG: [DB Migration Error] {e}")
             if 'allow_duplicates' not in columns:
@@ -136,7 +143,7 @@ class CommentDatabase:
         #     print(f"DEBUG: [DB] Cleared data for URL: {url}")
 
     def _sync_to_supabase_bg(self, url: str, participants_dict, last_comment_id, 
-                              all_commenters, title, prizes, winners, allow_duplicates):
+                              all_commenters, title, prizes, winners, allow_duplicates, allowed_list=None):
         """Supabase 동기화 - 백그라운드 스레드에서 실행 (블로킹 방지)"""
         if not self.supabase:
             return
@@ -146,6 +153,7 @@ class CommentDatabase:
             if title is not None: post_data["title"] = title
             if prizes is not None: post_data["prizes"] = prizes
             if winners is not None: post_data["winners"] = winners
+            if allowed_list is not None: post_data["allowed_list"] = allowed_list
             if allow_duplicates is not None: post_data["allow_duplicates"] = allow_duplicates
             if last_comment_id and last_comment_id != '':
                 post_data["last_comment_id"] = last_comment_id
@@ -170,7 +178,7 @@ class CommentDatabase:
 
     def _sync_to_supabase(self, url: str, participants_dict, last_comment_id, 
                           all_commenters=None, title=None, prizes=None, 
-                          winners=None, allow_duplicates=None):
+                          winners=None, allow_duplicates=None, allowed_list=None):
         """Supabase 동기화 - 백그라운드 스레드로 즉시 반환 (블로킹 없음)"""
         if not self.supabase:
             return
@@ -178,32 +186,33 @@ class CommentDatabase:
         t = threading.Thread(
             target=self._sync_to_supabase_bg,
             args=(url, participants_dict, last_comment_id, all_commenters,
-                  title, prizes, winners, allow_duplicates),
+                  title, prizes, winners, allow_duplicates, allowed_list),
             daemon=True
         )
         t.start()
 
     def save_data(self, url: str, participants_dict, last_comment_id,
-                  all_commenters=None, title=None, prizes=None, winners=None, allow_duplicates=None):
+                  all_commenters=None, title=None, prizes=None, winners=None, allow_duplicates=None, allowed_list=None):
         """수집된 데이터 저장 - Supabase 비동기 저장 (블로킹 없음)"""
-        self._sync_to_supabase(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates)
+        self._sync_to_supabase(url, participants_dict, last_comment_id, all_commenters, title, prizes, winners, allow_duplicates, allowed_list)
 
     def _save_to_local(self, url: str, participants_dict: Dict[str, int], last_comment_id: str, 
-                      all_commenters: List[str] = None, title: str = None, prizes: str = None, winners: str = None, allow_duplicates: bool = None):
+                      all_commenters: List[str] = None, title: str = None, prizes: str = None, winners: str = None, allow_duplicates: bool = None, allowed_list: str = None):
         """SQLite 저장 로직"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO posts (url, title, prizes, winners, allow_duplicates, last_comment_id, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO posts (url, title, prizes, winners, allowed_list, allow_duplicates, last_comment_id, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(url) DO UPDATE SET
                     title = COALESCE(excluded.title, posts.title),
                     prizes = COALESCE(excluded.prizes, posts.prizes),
                     winners = COALESCE(excluded.winners, posts.winners),
+                    allowed_list = COALESCE(excluded.allowed_list, posts.allowed_list),
                     allow_duplicates = COALESCE(excluded.allow_duplicates, posts.allow_duplicates),
                     last_comment_id = CASE WHEN excluded.last_comment_id != '' THEN excluded.last_comment_id ELSE posts.last_comment_id END,
                     updated_at = excluded.updated_at
-            ''', (url, title, prizes, winners, allow_duplicates, last_comment_id, datetime.now()))
+            ''', (url, title, prizes, winners, allowed_list, allow_duplicates, last_comment_id, datetime.now()))
             
             if participants_dict is not None and len(participants_dict) > 0:
                 cursor.execute("DELETE FROM participants WHERE url = ?", (url,))
@@ -275,7 +284,7 @@ class CommentDatabase:
         #     cursor.execute('UPDATE posts SET updated_at = ? WHERE url = ?', (datetime.now(), url))
         #     conn.commit()
 
-    def get_data(self, url: str) -> Tuple[Dict[str, int], List[str], str, str, str, str, bool]:
+    def get_data(self, url: str) -> Tuple[Dict[str, int], List[str], str, str, str, str, bool, str]:
         """특정 URL의 저장된 데이터 조회 (Supabase 우선)"""
         participants = {}
         all_commenters = []
@@ -284,6 +293,7 @@ class CommentDatabase:
         prizes = None
         winners = None
         allow_duplicates = True
+        allowed_list = None
         
         if self.supabase:
             try:
@@ -295,6 +305,7 @@ class CommentDatabase:
                     prizes = row.get("prizes", prizes)
                     winners = row.get("winners", winners)
                     allow_duplicates = row.get("allow_duplicates", True)
+                    allowed_list = row.get("allowed_list", allowed_list)
 
                 res = self.supabase.table("participants").select("author, count").eq("url", url).execute()
                 if res.data:
@@ -304,16 +315,16 @@ class CommentDatabase:
                 if res.data:
                     all_commenters = [r["author"] for r in res.data]
                 
-                return participants, all_commenters, last_id, title, prizes, winners, allow_duplicates
+                return participants, all_commenters, last_id, title, prizes, winners, allow_duplicates, allowed_list
             except Exception as e:
                 print(f"DEBUG: [Supabase Error] get_data: {e}")
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT last_comment_id, title, prizes, winners, allow_duplicates FROM posts WHERE url = ?", (url,))
+            cursor.execute("SELECT last_comment_id, title, prizes, winners, allow_duplicates, allowed_list FROM posts WHERE url = ?", (url,))
             row = cursor.fetchone()
             if row:
-                last_id, title, prizes, winners, allow_duplicates = row
+                last_id, title, prizes, winners, allow_duplicates, allowed_list = row
                 if allow_duplicates is None: allow_duplicates = True
             
             cursor.execute("SELECT author, count FROM participants WHERE url = ?", (url,))
@@ -323,7 +334,7 @@ class CommentDatabase:
             cursor.execute("SELECT author FROM commenters WHERE url = ?", (url,))
             all_commenters = [r[0] for r in cursor.fetchall()]
                 
-        return participants, all_commenters, last_id, title, prizes, winners, allow_duplicates
+        return participants, all_commenters, last_id, title, prizes, winners, allow_duplicates, allowed_list
 
     def get_all_urls(self) -> List[str]:
         """저장된 모든 URL 목록 조회"""

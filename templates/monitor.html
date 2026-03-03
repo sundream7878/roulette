@@ -950,8 +950,9 @@
 
         function selectHistory(url) {
             document.getElementById('url').value = url;
-            document.getElementById('history-container').style.display = 'none';
+            document.getElementById('history-modal').style.display = 'none';
             loadData();
+            loadAllowedList(); // URL이 변경되었으므로 명단 다시 로드
         }
 
         function setViewMode(mode) {
@@ -1035,6 +1036,7 @@
             currentParticipants = [];
             currentFullFeed = [];
             stopMonitoringUI();
+            loadAllowedList(); // 비어있는 URL 상태에서 명단 로드 (또는 초기화)
         }
 
         function deleteEvent() {
@@ -1152,17 +1154,33 @@
         }
 
         function loadAllowedList() {
-            fetch('/api/get_allowed_list').then(r => r.json()).then(data => {
-                if (data.content !== undefined) document.getElementById('whitelist-input').value = data.content;
-            });
+            const url = document.getElementById('url').value.trim();
+            // URL이 있으면 POST로 요청하여 DB에서 가져오기 시도
+            if (url) {
+                fetch('/api/get_allowed_list', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.content !== undefined) document.getElementById('whitelist-input').value = data.content;
+                    });
+            } else {
+                // URL 없으면 기존 방식(GET)으로 fallback
+                fetch('/api/get_allowed_list').then(r => r.json()).then(data => {
+                    if (data.content !== undefined) document.getElementById('whitelist-input').value = data.content;
+                });
+            }
         }
 
         function saveAllowedList() {
             const content = document.getElementById('whitelist-input').value;
+            const url = document.getElementById('url').value.trim();
             fetch('/api/save_allowed_list', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: content })
+                body: JSON.stringify({ content: content, url: url })
             })
                 .then(r => r.json()).then(data => { if (!data.error) alert('저장되었습니다.'); });
         }
@@ -1172,34 +1190,22 @@
         socket.on('update_participants', (data) => {
             console.log('Socket Update received:', data);
 
-            // 데이터 변화를 감지하기 위해 JSON 문자열 비교
-            const currentDataHash = JSON.stringify(data.participants || []);
-
-            if (_lastDataHash !== null && currentDataHash !== _lastDataHash) {
-                console.log('참가자 데이터 변경 감지! 자동 새로고침...');
-                window.location.reload();
-                return;
-            }
-
-            // 전체 댓글 수도 체크 (정상 참가자 외의 댓글 포함)
             const newTotalCount = data.total_comments || 0;
-            if (window._lastTotalCount !== undefined && newTotalCount > window._lastTotalCount) {
-                console.log('새 댓글 작성자 감지! 자동 새로고침...');
-                window.location.reload();
-                return;
+            const newParticipants = data.participants || [];
+            const newFullFeed = data.full_commenter_list || [];
+
+            // UI 상태 반영
+            currentParticipants = newParticipants;
+            if (newFullFeed.length > 0) {
+                currentFullFeed = newFullFeed;
             }
 
-            // 초기값 설정
-            _lastDataHash = currentDataHash;
-            window._lastTotalCount = newTotalCount;
-
-            currentParticipants = data.participants || [];
-            if (data.full_commenter_list && data.full_commenter_list.length > 0) {
-                currentFullFeed = data.full_commenter_list;
-            }
             updateStats(newTotalCount, currentParticipants.length);
             updateListUI();
-            if (isMonitoring) showStatus('실시간 수집 중... (' + new Date().toLocaleTimeString() + ')', 'success');
+
+            if (isMonitoring) {
+                showStatus('실시간 업데이트됨 (' + new Date().toLocaleTimeString() + ')', 'success');
+            }
         });
 
         window.onload = () => {

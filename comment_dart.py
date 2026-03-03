@@ -285,8 +285,9 @@ def handle_connect():
     # Supabase 변경 감지 폴러 시작 (최초 1회만 실행됨)
     if HAS_MONITOR:
         try:
-            from monitor_view import _start_supabase_polling
+            from monitor_view import _start_supabase_polling, _auto_start_monitoring
             _start_supabase_polling()
+            _auto_start_monitoring()  # 서버 시작 시 활성 URL 백그라운드 수집 자동 시작
         except Exception as e:
             print(f"DEBUG: Supabase polling start error: {e}")
 

@@ -107,12 +107,74 @@ monitoring_lock = False # 간단한 락 대용
 # ─── [실시간 Supabase 변경 감지 - 2초 빠른 폴링] ──────────────────────────────
 _last_supabase_state = {
     'updated_at': None,
-    'participant_count': -1,
+    'participant_count': -1,   # commenters 테이블 수
+    'confirmed_count': -1,     # participants 테이블 수 (확정 명단)
     'title': None,
     'prizes': None,
     'active_url': None,
 }
 _supabase_polling_started = False
+_auto_monitoring_started = False
+
+def _auto_start_monitoring():
+    """서버 시작 시 활성화된 URL이 있으면 자동으로 백그라운드 모니터링 시작"""
+    global _auto_monitoring_started
+    if _auto_monitoring_started:
+        return
+    _auto_monitoring_started = True
+
+    import threading
+    def _auto_start_thread():
+        import time as _time
+        _time.sleep(5)  # 서버 완전 초기화 대기
+        try:
+            # 1. 활성 URL 확인 (파일 또는 DB)
+            active_url = None
+            if os.path.exists(ACTIVE_URL_FILE):
+                with open(ACTIVE_URL_FILE, 'r', encoding='utf-8') as f:
+                    active_url = f.read().strip()
+            if not active_url and db.supabase:
+                res = db.supabase.table('posts').select('url').eq('is_active', True).limit(1).execute()
+                if res.data:
+                    active_url = res.data[0]['url']
+
+            if not active_url:
+                print("DEBUG: [AutoStart] No active URL found, skipping auto-monitoring")
+                return
+
+            print(f"DEBUG: [AutoStart] Found active URL: {active_url}")
+
+            # 2. event_states 초기화 (DB에서 데이터 복원)
+            event_id = 'admin_event'
+            try:
+                existing_participants, all_c_list, last_comment_id, title, prizes, winners, allow_duplicates, _ = db.get_data(active_url)
+            except Exception:
+                existing_participants, all_c_list, last_comment_id = {}, [], None
+                title, prizes, winners, allow_duplicates = None, None, None, True
+
+            event_states[event_id] = {
+                'participants': existing_participants,
+                'last_id': last_comment_id,
+                'url': active_url,
+                'seen_ids': set(),
+                'all_commenters': set(all_c_list) if all_c_list else set(),
+                'title': title,
+                'prizes': prizes,
+                'winners': winners,
+                'allow_duplicates': allow_duplicates,
+            }
+            print(f"DEBUG: [AutoStart] event_states initialized: {len(existing_participants)} participants, last_id={last_comment_id}")
+
+            # 3. 백그라운드 모니터링 시작
+            start_background_monitoring(active_url)
+            print(f"DEBUG: [AutoStart] Background monitoring started for {active_url}")
+
+        except Exception as e:
+            print(f"DEBUG: [AutoStart] Error: {e}")
+
+    t = threading.Thread(target=_auto_start_thread, daemon=True)
+    t.start()
+
 
 def _start_supabase_polling():
     """Supabase 변경 감지 스레드 시작 (최초 1회)"""
@@ -198,6 +260,9 @@ def _supabase_poll_loop():
                 # 전체 작성자 수를 기준으로 변경 감지
                 c_res = db.supabase.table('commenters').select('author', count='exact').eq('url', url).execute()
                 total_count = c_res.count if hasattr(c_res, 'count') else (len(c_res.data) if c_res.data else 0)
+                # 확정 참가자 수도 초기값으로
+                p_res = db.supabase.table('participants').select('author', count='exact').eq('url', url).execute()
+                confirmed_count = p_res.count if hasattr(p_res, 'count') else (len(p_res.data) if p_res.data else 0)
                 
                 _last_supabase_state.update({
                     'updated_at': post.get('updated_at'),
@@ -205,8 +270,9 @@ def _supabase_poll_loop():
                     'prizes': post.get('prizes'),
                     'active_url': url,
                     'participant_count': total_count,
+                    'confirmed_count': confirmed_count,
                 })
-                print(f"DEBUG: [Realtime] Initial state loaded: {total_count} commenters, title={post.get('title')}")
+                print(f"DEBUG: [Realtime] Initial state: {total_count} commenters, {confirmed_count} confirmed, title={post.get('title')}")
     except Exception as e:
         print(f"DEBUG: [Realtime] Init error: {e}")
 
@@ -247,18 +313,26 @@ def _supabase_poll_loop():
                     'title': title, 'prizes': prizes, 'active_url': url, 'updated_at': updated_at
                 })
 
-            # 2. 새로운 댓글 작성자(데이터) 변경 체크
+            # 2. commenters 수 변경 체크
             c_res = db.supabase.table('commenters').select('author').eq('url', url).execute()
             all_commenters_list = [r['author'] for r in c_res.data] if c_res.data else []
             current_total_count = len(all_commenters_list)
 
-            # 확정 참가자 목록도 같이 가져오기
+            # 3. 확정 참가자(participants) 수 변경 체크 - 이벤트 명단 변동 시에도 감지
             p_res = db.supabase.table('participants').select('author, count').eq('url', url).execute()
             participants = p_res.data or []
+            current_confirmed_count = len(participants)
 
-            # 변경 감지 (댓글 수 변동 또는 설정 변경 시 브로드캐스트)
-            if current_total_count != _last_supabase_state['participant_count'] or settings_changed:
-                print(f"DEBUG: [Realtime] Data changed ({current_total_count} commenters) → broadcasting")
+            # 변경 감지: 댓글 수 OR 확정 참가자 수 OR 설정 변경 시 emit
+            commenters_changed = current_total_count != _last_supabase_state['participant_count']
+            confirmed_changed = current_confirmed_count != _last_supabase_state['confirmed_count']
+
+            if commenters_changed or confirmed_changed or settings_changed:
+                change_reason = []
+                if commenters_changed: change_reason.append(f"commenters {_last_supabase_state['participant_count']}→{current_total_count}")
+                if confirmed_changed: change_reason.append(f"confirmed {_last_supabase_state['confirmed_count']}→{current_confirmed_count}")
+                if settings_changed: change_reason.append("settings")
+                print(f"DEBUG: [Realtime] Change detected ({', '.join(change_reason)}) → broadcasting")
                 
                 allowed_list = get_allowed_list(url)
                 full_commenters_data = []
@@ -278,6 +352,7 @@ def _supabase_poll_loop():
                     'event_id': 'realtime'
                 })
                 _last_supabase_state['participant_count'] = current_total_count
+                _last_supabase_state['confirmed_count'] = current_confirmed_count
 
         except Exception as e:
             print(f"DEBUG: [Realtime Poll Error] {e}")

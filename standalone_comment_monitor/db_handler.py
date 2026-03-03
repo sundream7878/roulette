@@ -159,14 +159,13 @@ class CommentDatabase:
                 post_data["last_comment_id"] = last_comment_id
             self.supabase.table("posts").upsert(post_data).execute()
 
-            # 2. participants 테이블 - upsert (INSERT OR REPLACE 방식)
+            # 2. participants 테이블 - 삭제 후 재삽입 (upsert 중복 키 오류 방지)
             if participants_dict is not None:
+                # 기존 데이터 삭제 후 새로 삽입 (upsert 대신 delete+insert 사용)
+                self.supabase.table("participants").delete().eq("url", url).execute()
                 if participants_dict:
                     p_batch = [{"url": url, "author": a, "count": c} for a, c in participants_dict.items()]
-                    self.supabase.table("participants").upsert(p_batch).execute()
-                else:
-                    # 빈 dict면 해당 URL 참가자 전체 삭제
-                    self.supabase.table("participants").delete().eq("url", url).execute()
+                    self.supabase.table("participants").insert(p_batch).execute()
 
             # 3. commenters 테이블 - upsert (중복 무시)
             if all_commenters:

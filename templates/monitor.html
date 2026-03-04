@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>댓글 모니터링 (로컬전용)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- Modern Typography -->
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap"
@@ -852,6 +853,12 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="event-memo">메모 / 공지사항 (룰렛 화면 하단에 표시)</label>
+                    <textarea id="event-memo" class="settings-input" rows="5"
+                        placeholder="이벤트 관련 공지사항이나 메모를 입력하세요."></textarea>
+                </div>
+
+                <div class="form-group">
                     <div class="switch-container">
                         <label for="allow-duplicates" style="margin:0; cursor:pointer;">중복 당첨 허용</label>
                         <label class="switch">
@@ -1120,6 +1127,7 @@
                     url: url,
                     title: document.getElementById('event-title').value,
                     prizes: document.getElementById('event-prizes').value,
+                    memo: document.getElementById('event-memo').value,
                     allow_duplicates: document.getElementById('allow-duplicates').checked
                 })
             })
@@ -1147,6 +1155,7 @@
 
                         document.getElementById('event-title').value = data.event_title || '';
                         document.getElementById('event-prizes').value = data.event_prizes || '';
+                        document.getElementById('event-memo').value = data.event_memo || '';
                         document.getElementById('allow-duplicates').checked = data.allow_duplicates !== false;
                         showStatus(data.message || '데이터 로드 완료', 'success');
                     }
@@ -1212,44 +1221,61 @@
             loadAllowedList();
             const urlField = document.getElementById('url');
             if (urlField && urlField.value) {
-                // URL이 서버에서 자동으로 채워졌으면 바로 모니터링 시작
-                console.log('활성 URL 감지 → 자동 모니터링 시작:', urlField.value);
-                startMonitoring();
+                // URL이 서버에서 자동으로 채워졌으면 바로 데이터 로드 및 모니터링 시작
+                console.log('활성 URL 감지 → 데이터 패치 및 자동 모니터링 시작:', urlField.value);
+                loadData(); // 기존 설정(제목, 사은품 등)을 DB에서 불러와 채움
+                startMonitoring(); // 실시간 수집 시작
             }
         };
     </script>
 
-<!-- Supabase Realtime: DB 변경을 브라우저가 직접 감지하여 자동 새로고침 -->
-<script>
-(function() {
-    var SUPABASE_URL = 'https://kbnszmnmvppfbdpdefqw.supabase.co';
-    var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtibnN6bW5tdnBwZmJkcGRlZnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNzU2MDgsImV4cCI6MjA4NzY1MTYwOH0.nFTpkNsG5Wk3Q10khoAYNyA0UaKpP2kmHLoE5LsVh4A';
-    window._gameIsActive = false;
-    var _reloadTimer = null;
-    function _scheduleReload() {
-        if (window._gameIsActive) { console.log('[Supabase RT] 게임 중, 새로고침 대기'); return; }
-        if (_reloadTimer) return;
-        console.log('[Supabase RT] 데이터 변경 감지 -> 1초 후 자동 새로고침');
-        _reloadTimer = setTimeout(function() { window.location.reload(); }, 1000);
-    }
-    try {
-        var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        sb.channel('roulette-rt')
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'participants'}, function(p) {
-                console.log('[Supabase RT] participants 변경:', p.eventType);
-                _scheduleReload();
-            })
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'commenters'}, function(p) {
-                console.log('[Supabase RT] commenters 변경:', p.eventType);
-                _scheduleReload();
-            })
-            .subscribe(function(status) {
-                console.log('[Supabase RT] 구독 상태:', status);
-            });
-        console.log('[Supabase RT] Realtime 구독 초기화 완료');
-    } catch(e) { console.error('[Supabase RT] 오류:', e); }
-})();
-</script>
+    <!-- Supabase Realtime: DB 변경을 브라우저가 직접 감지하여 자동 새로고침 -->
+    <script>
+        (function () {
+            var SUPABASE_URL = 'https://kbnszmnmvppfbdpdefqw.supabase.co';
+            var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtibnN6bW5tdnBwZmJkcGRlZnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNzU2MDgsImV4cCI6MjA4NzY1MTYwOH0.nFTpkNsG5Wk3Q10khoAYNyA0UaKpP2kmHLoE5LsVh4A';
+            var COOLDOWN_MS = 20000; // 20초 내 중복 새로고침 방지
+            var _reloadTimer = null;
+
+            function _scheduleReload(eventType) {
+                // DELETE는 save 직전에 항상 발생하므로 무시 (INSERT만 처리)
+                if (eventType === 'DELETE') {
+                    console.log('[Supabase RT] DELETE 이벤트 무시 (재삽입 대기)');
+                    return;
+                }
+                // sessionStorage 쿨다운: 마지막 새로고침 후 20초 미만이면 스킵
+                var lastReload = parseInt(sessionStorage.getItem('_rtLastReload') || '0');
+                var now = Date.now();
+                if (now - lastReload < COOLDOWN_MS) {
+                    console.log('[Supabase RT] 쿨다운 중, 새로고침 스킵 (' + Math.round((COOLDOWN_MS - (now - lastReload)) / 1000) + '초 남음)');
+                    return;
+                }
+                if (_reloadTimer) return;
+                console.log('[Supabase RT] 데이터 변경 (' + eventType + ') -> 2초 후 자동 새로고침');
+                _reloadTimer = setTimeout(function () {
+                    sessionStorage.setItem('_rtLastReload', String(Date.now()));
+                    window.location.reload();
+                }, 2000);
+            }
+
+            try {
+                var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                sb.channel('monitor-rt')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, function (p) {
+                        console.log('[Supabase RT] participants:', p.eventType);
+                        _scheduleReload(p.eventType);
+                    })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'commenters' }, function (p) {
+                        console.log('[Supabase RT] commenters:', p.eventType);
+                        _scheduleReload(p.eventType);
+                    })
+                    .subscribe(function (status) {
+                        console.log('[Supabase RT] 구독 상태:', status);
+                    });
+                console.log('[Supabase RT] Realtime 구독 초기화 완료');
+            } catch (e) { console.error('[Supabase RT] 오류:', e); }
+        })();
+    </script>
 </body>
 
 </html>

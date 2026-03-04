@@ -1,17 +1,19 @@
 import requests
+import json
 
-url = "http://127.0.0.1:5000/api/update_event_settings"
+url = "http://localhost:5000/api/update_event_settings"
 data = {
-    "url": "test_sync_url",
-    "title": "My Title 2",
-    "prizes": "Prize 1\nPrize 2",
-    "allow_duplicates": False
+    "url": "https://cafe.naver.com/test_resilience",
+    "title": "Test Title",
+    "prizes": "Prize 1",
+    "memo": "Test Memo",
+    "allow_duplicates": True
 }
 
+print(f"Testing {url} with data: {data}")
 try:
     response = requests.post(url, json=data)
-    print(response.status_code)
-    print(response.json())
+    print(f"Status Code: {response.status_code}")
+    print(f"Response: {response.text}")
 except Exception as e:
-    print(f"Error: {e}")
-
+    print(f"Exception: {e}")

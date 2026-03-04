@@ -49,7 +49,7 @@ def get_allowed_list(url=None):
     # URL이 있으면 DB에서 가져오기 우선
     if url:
         try:
-            _, _, _, _, _, _, _, allowed_list_content = db.get_data(url)
+            _, _, _, _, _, _, _, _, allowed_list_content = db.get_data(url)
             if allowed_list_content:
                 allowed = {}
                 for line in allowed_list_content.splitlines():
@@ -145,14 +145,22 @@ def _auto_start_monitoring():
             print(f"DEBUG: [AutoStart] Found active URL: {active_url}")
 
             # 2. event_states 초기화 (DB에서 데이터 복원)
-            event_id = 'admin_event'
+            # URL을 정규화하여 키 일관성 확보
+            active_url = normalize_url(active_url)
+            
+            # 이미 상태가 있으면(프론트엔드 요청 등) 덮어쓰지 않음
+            if active_url in event_states:
+                print(f"DEBUG: [AutoStart] State for {active_url} already exists, skipping initialization")
+                start_background_monitoring(active_url)
+                return
+
             try:
-                existing_participants, all_c_list, last_comment_id, title, prizes, winners, allow_duplicates, _ = db.get_data(active_url)
+                existing_participants, all_c_list, last_comment_id, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(active_url)
             except Exception:
                 existing_participants, all_c_list, last_comment_id = {}, [], None
-                title, prizes, winners, allow_duplicates = None, None, None, True
+                title, prizes, memo, winners, allow_duplicates = None, None, None, None, True
 
-            event_states[event_id] = {
+            event_states[active_url] = {
                 'participants': existing_participants,
                 'last_id': last_comment_id,
                 'url': active_url,
@@ -160,10 +168,11 @@ def _auto_start_monitoring():
                 'all_commenters': set(all_c_list) if all_c_list else set(),
                 'title': title,
                 'prizes': prizes,
+                'memo': memo,
                 'winners': winners,
                 'allow_duplicates': allow_duplicates,
             }
-            print(f"DEBUG: [AutoStart] event_states initialized: {len(existing_participants)} participants, last_id={last_comment_id}")
+            print(f"DEBUG: [AutoStart] event_states initialized for {active_url}")
 
             # 3. 백그라운드 모니터링 시작
             start_background_monitoring(active_url)
@@ -397,6 +406,7 @@ def update_event_settings():
     url = normalize_url(data.get('url', ''))
     title = data.get('title')
     prizes = data.get('prizes')
+    memo = data.get('memo')
     allow_duplicates = data.get('allow_duplicates')
     
     if not url:
@@ -404,18 +414,39 @@ def update_event_settings():
         
     try:
         # DB 저장 (입력된 값만 업데이트됨)
-        # participants_dict를 None으로 주어 기존 명단이 삭제되지 않도록 함
-        db.save_data(url, None, '', title=title, prizes=prizes, allow_duplicates=allow_duplicates)
+        # 덮어쓰기 방지를 위해 기존 상태에서 last_id와 winners를 가져옴
+        current_last_id = ''
+        current_winners = None
+        if url in event_states:
+            current_last_id = event_states[url].get('last_id', '')
+            current_winners = event_states[url].get('winners')
+
+        db.save_data(url, None, current_last_id, title=title, prizes=prizes, memo=memo, 
+                     winners=current_winners, allow_duplicates=allow_duplicates)
         
-        # [추가] 설정 저장 시 해당 이벤트를 활성화 (룰렛 화면에 즉시 반영되도록)
+        # [추가] 설정 저장 시 해당 이벤트를 활성화 (룰렛 화면에 즉시 반영도록)
         set_active_url(url)
         
-        # 메모리 상태 업데이트
-        for eid, state in event_states.items():
-            if state.get('url') == url:
-                if title is not None: state['title'] = title
-                if prizes is not None: state['prizes'] = prizes
-                if allow_duplicates is not None: state['allow_duplicates'] = (allow_duplicates == True)
+        # 메모리 상태 업데이트 (URL을 키로 사용)
+        if url in event_states:
+            state = event_states[url]
+            if title is not None: state['title'] = title
+            if prizes is not None: state['prizes'] = prizes
+            if memo is not None: state['memo'] = memo
+            if allow_duplicates is not None: state['allow_duplicates'] = (allow_duplicates == True)
+        else:
+            # 상태가 없으면 새로 생성 (최소 정보만)
+            event_states[url] = {
+                'url': url,
+                'title': title,
+                'prizes': prizes,
+                'memo': memo,
+                'allow_duplicates': (allow_duplicates == True),
+                'participants': {},
+                'last_id': None,
+                'seen_ids': set(),
+                'all_commenters': set()
+            }
         
         # 소켓 브로드캐스트
         from comment_dart import socketio
@@ -423,6 +454,7 @@ def update_event_settings():
             'url': url,
             'title': title,
             'prizes': prizes,
+            'memo': memo,
             'allow_duplicates': allow_duplicates
         })
         
@@ -433,41 +465,27 @@ def update_event_settings():
 @monitor_bp.route('/api/fetch_comments', methods=['POST'])
 def fetch_comments_route():
     data = request.json
+    # URL 정규화
     url = normalize_url(data.get('url', ''))
     incremental = data.get('incremental', False)
-    # [수정] 어드민 페이지는 단일 세션으로 동작하므로 고정 ID 사용 (격리 필요시 URL 기반)
-    event_id = 'admin_event' 
+    # [수정] URL 자체를 키로 사용하여 중복 방지
+    event_id = url 
     
     if not url:
         return jsonify({'error': 'URL이 필요합니다.'}), 400
         
     try:
-        # URL 정규화 및 ID 추출 (normalize_url에서 이미 처리됨)
-        # from standalone_comment_monitor.parsers import parse_post_ids_from_url
-        # clubid, articleid = parse_post_ids_from_url(url)
+        print(f"DEBUG: [API Request] URL: {url}, incremental: {incremental}")
         
-        canonical_url = url # Already normalized by normalize_url
-        # if clubid and articleid:
-        #     canonical_url = f"https://cafe.naver.com/ca-fe/web/cafes/{clubid}/articles/{articleid}"
-        
-        print(f"DEBUG: [API Request] Event: {event_id}, URL: {canonical_url}, incremental: {incremental}")
-        
-        url = canonical_url 
-
-        # 1. 이벤트 데이터 초기화 또는 로드
-        # [수정] URL이 변경된 경우에도 새로 시작해야 함 (동일 event_id로 다른 URL 수집 시 데이터 섞임 방지)
-        is_url_changed = False
-        if event_id in event_states and event_states[event_id].get('url') != url:
-            print(f"DEBUG: URL changed for event {event_id}. Forcing fresh state.")
-            is_url_changed = True
-
-        if not incremental or event_id not in event_states or is_url_changed:
-            print(f"DEBUG: Initializing fresh state for event: {event_id}")
-            # DB에서 해당 URL의 데이터를 가져와 초기값으로 사용하거나, 완전 초기화
-            if not incremental or is_url_changed:
+        # 1. 이벤트 데이터 초기화 또는 로드 (URL 기반)
+        if url not in event_states or not incremental:
+            print(f"DEBUG: Initializing state for URL: {url}")
+            if not incremental:
                 # 완전 새로 시작하는 경우 (새 이벤트 버튼 또는 URL 변경)
                 last_comment_id = None
                 existing_participants = {}
+                all_commenters = set()
+                title, prizes, memo, winners, allow_duplicates = None, None, None, None, True
                 db.clear_data(url) # DB 초기화 (기본 정책 유지 시)
                 
                 # 메인 룰렛용 임시 파일도 초기화
@@ -477,24 +495,23 @@ def fetch_comments_route():
                     with open(LAST_COMMENT_FILE, 'w', encoding='utf-8') as f: f.write('')
             else:
                 # 점진적 수집이지만 메모리에 없을 때 (페이지 새로고침 등)
-                existing_participants, all_c_list, last_comment_id, title, prizes, winners, allow_duplicates, _ = db.get_data(url)
+                existing_participants, all_c_list, last_comment_id, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(url)
+                all_commenters = set(all_c_list) if all_c_list else set()
             
-            event_states[event_id] = {
+            event_states[url] = {
                 'participants': existing_participants,
                 'last_id': last_comment_id,
                 'url': url,
                 'seen_ids': set(), # 본 댓글 ID 추적용 (이중 잠금)
-                'all_commenters': set(all_c_list) if 'all_c_list' in locals() else set(),
-                'title': title if 'title' in locals() else None,
-                'prizes': prizes if 'prizes' in locals() else None,
-                'winners': winners if 'winners' in locals() else None,
-                'allow_duplicates': allow_duplicates if 'allow_duplicates' in locals() else True
+                'all_commenters': all_commenters,
+                'title': title,
+                'prizes': prizes,
+                'memo': memo,
+                'winners': winners,
+                'allow_duplicates': allow_duplicates
             }
-            # 초기 로드시 현재 알고 있는 ID들 채워넣기 (이미 DB 등에 기록된 상태 반영)
-            # 단, 초기화(incremental=False) 시에는 비워두어야 함
 
-        
-        current_state = event_states[event_id]
+        current_state = event_states[url]
         last_comment_id = current_state['last_id']
         existing_participants = current_state['participants']
             
@@ -555,8 +572,11 @@ def fetch_comments_route():
         set_active_url(url)
         db.update_timestamp(url)
         
-        # DB 저장 및 파일 동기화 (최종 결과만)
-        db.save_data(url, existing_participants, current_state['last_id'], list(all_commenters))
+        # DB 저장 및 파일 동기화 (최종 결과만) - 기존 설정(제목, 상품, 메모 등) 유지
+        db.save_data(url, existing_participants, current_state['last_id'], list(all_commenters),
+                     title=current_state.get('title'), prizes=current_state.get('prizes'),
+                     memo=current_state.get('memo'), winners=current_state.get('winners'),
+                     allow_duplicates=current_state.get('allow_duplicates'))
         
         try:
             with open(PARTICIPANTS_FILE, 'w', encoding='utf-8') as f:
@@ -660,97 +680,93 @@ def start_background_monitoring(url):
 
         while url in active_monitoring_urls:
             try:
-                # 해당 URL을 사용하는 모든 이벤트들의 상태 확인 및 업데이트
-                target_events = [eid for eid, state in event_states.items() if state.get('url') == url]
-                
-                if not target_events:
+                # 해당 URL의 상태 직접 참조 (URL이 키)
+                state = event_states.get(url)
+                if not state:
                     with open(log_file, "a", encoding="utf-8") as f:
-                        f.write(f"[{datetime.now()}] No target events for {url}. Stopping.\n")
+                        f.write(f"[{datetime.now()}] No state for {url}. Stopping.\n")
                     active_monitoring_urls.pop(url, None)
                     break
                 
-                # 매 루프마다 가벼운 로그
-                # with open(log_file, "a", encoding="utf-8") as f:
-                #    f.write(f"[{datetime.now()}] Polling Naver for {url}...\n")
+                last_id = state.get('last_id')
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now()}] [{url[-10:]}] Polling Naver (last_id: {last_id})...\n")
                 
-                for eid in target_events:
-                    state = event_states[eid]
-                    last_id = state.get('last_id')
+                # 단일 상태에 대해 수집 수행
+                try:
+                    new_comments = scraper_inner.get_new_comments(url, last_comment_id=last_id)
+                except Exception as ge:
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"[{datetime.now()}] [{url[-10:]}] Scraper error: {ge}\n")
+                    continue
+                
+                if new_comments:
+                    processed_count = len(new_comments)
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"[{datetime.now()}] [{url[-10:]}] Found {processed_count} new comments.\n")
+                    
+                    seen_ids = state.setdefault('seen_ids', set())
+                    allowed_list = get_allowed_list()
+                    added_count = 0
+                    
+                    for c in new_comments:
+                        cid = c.get('comment_id')
+                        if cid not in seen_ids:
+                            seen_ids.add(cid)
+                            writer = c.get('author_nickname') or c.get('author_id')
+                            if writer and writer != 'None':
+                                all_commenters = state.setdefault('all_commenters', set())
+                                all_commenters.add(writer)
+                                if writer in allowed_list:
+                                    if writer not in state['participants']:
+                                        state['participants'][writer] = allowed_list[writer]
+                                        added_count += 1
+                    
+                    # 마지막 ID 업데이트
+                    for last_c in reversed(new_comments):
+                        cid = last_c.get('comment_id', '')
+                        if cid and not cid.startswith('selenium_'):
+                            state['last_id'] = cid
+                            break
+                    
+                    # DB 동기화 (비동기) - 기존 설정 유지
+                    db.save_data(url, state['participants'], state['last_id'], list(state.get('all_commenters', [])),
+                                 title=state.get('title'), prizes=state.get('prizes'),
+                                 memo=state.get('memo'), winners=state.get('winners'),
+                                 allow_duplicates=state.get('allow_duplicates'))
+
+                    # 무조건 업데이트 전송 (UI 갱신을 위해)
+                    p_list_for_roulette = [(name, int(count)) for name, count in state['participants'].items()]
+                    p_list_for_roulette.sort(key=lambda x: x[0])
+
+                    full_commenters_data = []
+                    all_commenters_list = sorted(list(state.get('all_commenters', set())))
+                    
+                    for name in all_commenters_list:
+                        full_commenters_data.append({
+                            'name': name,
+                            'is_whitelisted': name in allowed_list,
+                            'tickets': allowed_list.get(name, 0)
+                        })
+
+                    socketio.emit('update_participants', {
+                        'participants': p_list_for_roulette,
+                        'full_commenter_list': full_commenters_data,
+                        'total_comments': len(all_commenters_list),
+                        'event_id': url,
+                        'new_count': added_count
+                    })
                     
                     with open(log_file, "a", encoding="utf-8") as f:
-                        f.write(f"[{datetime.now()}] [{eid}] Polling Naver (last_id: {last_id})...\n")
+                        f.write(f"[{datetime.now()}] [{url[-10:]}] Emitted update. Total commenters: {len(all_commenters_list)}\n")
                     
-                    try:
-                        new_comments = scraper_inner.get_new_comments(url, last_comment_id=last_id)
-                    except Exception as ge:
+                    if added_count > 0:
+                        sync_files(state['participants'], state['last_id'])
+                else:
+                    # 댓글이 없는 경우에도 주기적으로 생존 신고 (디버깅용)
+                    if int(time.time()) % 30 == 0:
                         with open(log_file, "a", encoding="utf-8") as f:
-                            f.write(f"[{datetime.now()}] [{eid}] Scraper error: {ge}\n")
-                        continue
-                    
-                    if new_comments:
-                        processed_count = len(new_comments)
-                        with open(log_file, "a", encoding="utf-8") as f:
-                            f.write(f"[{datetime.now()}] [{eid}] Found {processed_count} new comments.\n")
-                        
-                        seen_ids = state.setdefault('seen_ids', set())
-                        allowed_list = get_allowed_list()
-                        added_count = 0
-                        
-                        for c in new_comments:
-                            cid = c.get('comment_id')
-                            if cid not in seen_ids:
-                                seen_ids.add(cid)
-                                writer = c.get('author_nickname') or c.get('author_id')
-                                if writer and writer != 'None':
-                                    all_commenters = state.setdefault('all_commenters', set())
-                                    all_commenters.add(writer)
-                                    if writer in allowed_list:
-                                        if writer not in state['participants']:
-                                            state['participants'][writer] = allowed_list[writer]
-                                            added_count += 1
-                        
-                        # 마지막 ID 업데이트
-                        for last_c in reversed(new_comments):
-                            cid = last_c.get('comment_id', '')
-                            if cid and not cid.startswith('selenium_'):
-                                state['last_id'] = cid
-                                break
-                        
-                        # DB 동기화 (비동기)
-                        db.save_data(url, state['participants'], state['last_id'], list(state.get('all_commenters', [])))
-
-                        # 무조건 업데이트 전송 (UI 갱신을 위해)
-                        p_list_for_roulette = [(name, int(count)) for name, count in state['participants'].items()]
-                        p_list_for_roulette.sort(key=lambda x: x[0])
-
-                        full_commenters_data = []
-                        all_commenters_list = sorted(list(state.get('all_commenters', set())))
-                        
-                        for name in all_commenters_list:
-                            full_commenters_data.append({
-                                'name': name,
-                                'is_whitelisted': name in allowed_list,
-                                'tickets': allowed_list.get(name, 0)
-                            })
-
-                        socketio.emit('update_participants', {
-                            'participants': p_list_for_roulette,
-                            'full_commenter_list': full_commenters_data,
-                            'total_comments': len(all_commenters_list),
-                            'event_id': eid,
-                            'new_count': added_count
-                        })
-                        
-                        with open(log_file, "a", encoding="utf-8") as f:
-                            f.write(f"[{datetime.now()}] [{eid}] Emitted update. Total commenters: {len(all_commenters_list)}\n")
-                        
-                        if added_count > 0:
-                            sync_files(state['participants'], state['last_id'])
-                    else:
-                        # 댓글이 없는 경우에도 주기적으로 생존 신고 (디버깅용)
-                        if int(time.time()) % 30 == 0:
-                            with open(log_file, "a", encoding="utf-8") as f:
-                                f.write(f"[{datetime.now()}] [{eid}] Loop alive, no new comments.\n")
+                            f.write(f"[{datetime.now()}] [{url[-10:]}] Loop alive, no new comments.\n")
 
             except Exception as le:
                 print(f"DEBUG: [Background Loop Error] {le}")
@@ -797,7 +813,7 @@ def load_comments():
     try:
         url = normalize_url(url)
         print(f"DEBUG: [Load Request] URL: {url}")
-        participants_dict, all_commenter_list, last_id, title, prizes, winners, allow_duplicates, _ = db.get_data(url)
+        participants_dict, all_commenter_list, last_id, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(url)
         
         if not participants_dict and not all_commenter_list:
             return jsonify({'message': '저장된 데이터가 없습니다.', 'participants': [], 'url': url})
@@ -809,9 +825,9 @@ def load_comments():
         set_active_url(url)
         db.update_timestamp(url)
         
-        # 로드된 데이터로 메모리 상태 복구/생성
-        event_id = str(int(time.time()))
-        event_states[event_id] = {
+        # 로드된 데이터로 메모리 상태 복구/생성 (URL을 키로 사용)
+        event_id = url
+        event_states[url] = {
             'participants': participants_dict,
             'all_commenters': set(all_commenter_list),
             'last_id': last_id,
@@ -877,6 +893,7 @@ def load_comments():
             'event_id': event_id,
             'event_title': title,
             'event_prizes': prizes,
+            'event_memo': memo,
             'event_winners': winners,
             'allow_duplicates': event_states[event_id].get('allow_duplicates', True), # Use event_states for current state
             'response_id': response_id
@@ -934,7 +951,7 @@ def api_get_allowed_list():
     try:
         if url:
             # DB에서 먼저 조회
-            _, _, _, _, _, _, _, allowed_list_content = db.get_data(url)
+            _, _, _, _, _, _, _, _, allowed_list_content = db.get_data(url)
             if allowed_list_content is not None:
                 return jsonify({'content': allowed_list_content})
         

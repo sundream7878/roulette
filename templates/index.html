@@ -38,6 +38,32 @@
             font-weight: 800;
         }
 
+        #memo-container {
+            margin-left: 40px;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            min-width: 220px;
+            text-align: left;
+            border: 1px solid #e0e0e0;
+            margin-top: 16px;
+        }
+
+        #memo-container h3 {
+            margin-top: 0;
+            color: #4CAF50;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+
+        .memo-text {
+            white-space: pre-line;
+            font-size: 0.95em;
+            color: #444;
+            line-height: 1.6;
+        }
+
         #prize-container {
             margin-left: 40px;
             padding: 20px;
@@ -481,28 +507,40 @@
         </div>
 
         <!-- 사은품 목록 (오른쪽으로 이동) -->
-        <div id="prize-container">
-            <h3>🎁 사은품 목록</h3>
-            <div id="prize-list">
-                {% if prizes %}
-                {% set p_list = prizes.split('\n') %}
-                {% set w_list = winners.split(',') if winners else [] %}
-                {% for prize in p_list %}
-                <div class="prize-item">
-                    <span>{{ prize }}</span>
-                    {% if loop.index0 < w_list|length %} <span class="winner-badge">🏆 {{ w_list[loop.index0] }}</span>
-                        {% endif %}
+        <div id="prize-right-col" style="display:flex; flex-direction:column; gap:0;">
+            <div id="prize-container">
+                <h3>🎁 사은품 목록</h3>
+                <div id="prize-list">
+                    {% if prizes %}
+                    {% set p_list = prizes.split('\n') %}
+                    {% for prize in p_list %}
+                    <div class="prize-item">
+                        <span>{{ prize }}</span>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="prize-item" style="color: #999;">등록된 사은품이 없습니다.</div>
+                    {% endif %}
                 </div>
-                {% endfor %}
-                {% else %}
-                <div class="prize-item" style="color: #999;">등록된 사은품이 없습니다.</div>
-                {% endif %}
+
+                <div id="result-container">
+                    <h2 id="winner"></h2>
+                    <div id="congratulation">썬드림 이벤트 당첨을 축하드립니다!!</div>
+                </div>
             </div>
 
-            <div id="result-container">
-                <h2 id="winner"></h2>
-                <div id="congratulation">썬드림 이벤트 당첨을 축하드립니다!!</div>
+            <!-- 메모 카드 -->
+            {% if memo %}
+            <div id="memo-container">
+                <h3>📌 공지 / 메모</h3>
+                <div class="memo-text" id="memo-text">{{ memo }}</div>
             </div>
+            {% else %}
+            <div id="memo-container" style="display:none;">
+                <h3>📌 공지 / 메모</h3>
+                <div class="memo-text" id="memo-text"></div>
+            </div>
+            {% endif %}
         </div>
     </div>
 
@@ -1106,25 +1144,26 @@
                     if (ed.prizes !== undefined || ed.winners !== undefined) {
                         const prizeListEl = document.getElementById('prize-list');
                         if (prizeListEl) {
-                            // null 값 처리 (Render 데이터 등)
                             if (ed.prizes !== undefined) prizeListEl.dataset.prizes = ed.prizes || '';
-                            if (ed.winners !== undefined) prizeListEl.dataset.winners = ed.winners || '';
 
                             const currentPrizes = prizeListEl.dataset.prizes || '';
-                            const currentWinners = prizeListEl.dataset.winners || '';
 
                             if (currentPrizes.trim()) {
                                 const pList = currentPrizes.split('\n').map(p => p.trim()).filter(p => p);
-                                const wList = currentWinners ? currentWinners.split(',').map(w => w.trim()).filter(w => w) : [];
 
                                 prizeListEl.innerHTML = pList.map((prize, index) => {
-                                    let winnerHtml = '';
-                                    if (index < wList.length) {
-                                        winnerHtml = `<span class="winner-badge">🏆 ${wList[index]}</span>`;
-                                    }
-                                    return `<div class="prize-item"><span>${prize}</span>${winnerHtml}</div>`;
+                                    return `<div class="prize-item"><span>${prize}</span></div>`;
                                 }).join('');
                             }
+                        }
+                    }
+
+                    if (ed.memo !== undefined) {
+                        const memoEl = document.getElementById('memo-text');
+                        const memoContainer = document.getElementById('memo-container');
+                        if (memoEl && memoContainer) {
+                            memoEl.textContent = ed.memo || '';
+                            memoContainer.style.display = ed.memo ? '' : 'none';
                         }
                     }
 
@@ -1335,8 +1374,15 @@
                         const prizeListEl = document.getElementById('prize-list');
                         if (prizeListEl && data.prizes) {
                             const pList = data.prizes.split('\n').map(p => p.trim()).filter(p => p);
-                            const wList = data.winners ? data.winners.split(',').map(w => w.trim()).filter(w => w) : [];
-                            prizeListEl.innerHTML = pList.map((prize, i) => `<div class="prize-item"><span>${prize}</span>${i < wList.length ? `<span class="winner-badge">🏆 ${wList[i]}</span>` : ''}</div>`).join('');
+                            prizeListEl.innerHTML = pList.map((prize) => `<div class="prize-item"><span>${prize}</span></div>`).join('');
+                        }
+                    }
+                    if (data.memo !== undefined) {
+                        const memoEl = document.getElementById('memo-text');
+                        const memoContainer = document.getElementById('memo-container');
+                        if (memoEl && memoContainer) {
+                            memoEl.textContent = data.memo || '';
+                            memoContainer.style.display = data.memo ? '' : 'none';
                         }
                     }
                 }
@@ -1344,37 +1390,37 @@
         };
     </script>
 
-<!-- Supabase Realtime: DB 변경을 브라우저가 직접 감지하여 자동 새로고침 -->
-<script>
-(function() {
-    var SUPABASE_URL = 'https://kbnszmnmvppfbdpdefqw.supabase.co';
-    var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtibnN6bW5tdnBwZmJkcGRlZnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNzU2MDgsImV4cCI6MjA4NzY1MTYwOH0.nFTpkNsG5Wk3Q10khoAYNyA0UaKpP2kmHLoE5LsVh4A';
-    window._gameIsActive = false;
-    var _reloadTimer = null;
-    function _scheduleReload() {
-        if (window._gameIsActive) { console.log('[Supabase RT] 게임 중, 새로고침 대기'); return; }
-        if (_reloadTimer) return;
-        console.log('[Supabase RT] 데이터 변경 감지 -> 1초 후 자동 새로고침');
-        _reloadTimer = setTimeout(function() { window.location.reload(); }, 1000);
-    }
-    try {
-        var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        sb.channel('roulette-rt')
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'participants'}, function(p) {
-                console.log('[Supabase RT] participants 변경:', p.eventType);
-                _scheduleReload();
-            })
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'commenters'}, function(p) {
-                console.log('[Supabase RT] commenters 변경:', p.eventType);
-                _scheduleReload();
-            })
-            .subscribe(function(status) {
-                console.log('[Supabase RT] 구독 상태:', status);
-            });
-        console.log('[Supabase RT] Realtime 구독 초기화 완료');
-    } catch(e) { console.error('[Supabase RT] 오류:', e); }
-})();
-</script>
+    <!-- Supabase Realtime: DB 변경을 브라우저가 직접 감지하여 자동 새로고침 -->
+    <script>
+        (function () {
+            var SUPABASE_URL = 'https://kbnszmnmvppfbdpdefqw.supabase.co';
+            var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtibnN6bW5tdnBwZmJkcGRlZnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNzU2MDgsImV4cCI6MjA4NzY1MTYwOH0.nFTpkNsG5Wk3Q10khoAYNyA0UaKpP2kmHLoE5LsVh4A';
+            window._gameIsActive = false;
+            var _reloadTimer = null;
+            function _scheduleReload() {
+                if (window._gameIsActive) { console.log('[Supabase RT] 게임 중, 새로고침 대기'); return; }
+                if (_reloadTimer) return;
+                console.log('[Supabase RT] 데이터 변경 감지 -> 1초 후 자동 새로고침');
+                _reloadTimer = setTimeout(function () { window.location.reload(); }, 1000);
+            }
+            try {
+                var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                sb.channel('roulette-rt')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, function (p) {
+                        console.log('[Supabase RT] participants 변경:', p.eventType);
+                        _scheduleReload();
+                    })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'commenters' }, function (p) {
+                        console.log('[Supabase RT] commenters 변경:', p.eventType);
+                        _scheduleReload();
+                    })
+                    .subscribe(function (status) {
+                        console.log('[Supabase RT] 구독 상태:', status);
+                    });
+                console.log('[Supabase RT] Realtime 구독 초기화 완료');
+            } catch (e) { console.error('[Supabase RT] 오류:', e); }
+        })();
+    </script>
 </body>
 
 </html>

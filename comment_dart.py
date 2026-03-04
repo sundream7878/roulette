@@ -148,13 +148,14 @@ def guest_view():
     # 가장 최근에 업데이트된 글 정보 가져오기 (가중치/제목/사은품/당첨자/중복허용 보관용)
     title = None
     prizes = None
+    memo = None
     winners = None
     active_url = None
     if HAS_MONITOR:
         try:
             active_url = get_active_url()
             if active_url:
-                _, _, _, title, prizes, winners, _, _ = db.get_data(active_url)
+                _, _, _, title, prizes, memo, winners, _, _ = db.get_data(active_url)
         except: pass
 
     # 사전 참여 명단 (화이트리스트)
@@ -167,6 +168,7 @@ def guest_view():
                            is_guest=True,
                            title=title,
                            prizes=prizes,
+                           memo=memo,
                            winners=winners,
                            current_url=active_url,
                            allowed_names=allowed_names)
@@ -182,7 +184,7 @@ def load_participants(filename="participants.txt"):
         try:
             active_url = get_active_url()
             if active_url:
-                participants_dict, _, _, _, _, _, _, _ = db.get_data(active_url)
+                participants_dict, _, _, _, _, _, _, _, _ = db.get_data(active_url)
                 if participants_dict:
                     # 룰렛 엔진용 리스트 형식으로 변환
                     participants = [(name, int(count)) for name, count in participants_dict.items()]
@@ -251,13 +253,14 @@ def index():
     # 가장 최근에 업데이트된 글 정보 가져오기
     title = None
     prizes = None
+    memo = None
     winners = None
     active_url = None
     if HAS_MONITOR:
         try:
             active_url = get_active_url()
             if active_url:
-                _, _, _, title, prizes, winners, _, _ = db.get_data(active_url)
+                _, _, _, title, prizes, memo, winners, _, _ = db.get_data(active_url)
         except: pass
 
     # 사전 참여 명단 (화이트리스트)
@@ -270,6 +273,7 @@ def index():
                              user=current_user,
                              title=title,
                              prizes=prizes,
+                             memo=memo,
                              winners=winners,
                              current_url=active_url,
                              allowed_names=allowed_names)
@@ -442,7 +446,7 @@ def handle_confirm_winner(data=None):
             active_url = normalize_url(data.get('url')) if data.get('url') else get_active_url()
             if active_url:
                 # 1. 현재 데이터 모두 가져오기 (덮어쓰기 방지)
-                participants, all_commenters, last_id, title, prizes, current_winners_str, allow_duplicates, _ = db.get_data(active_url)
+                participants, all_commenters, last_id, title, prizes, memo, current_winners_str, allow_duplicates, _ = db.get_data(active_url)
                 
                 print(f"DEBUG: Policy - Allow Duplicates: {allow_duplicates}, Participants count: {len(participants)}")
                 
@@ -542,7 +546,7 @@ def handle_request_game_status():
         try:
             active_url = get_active_url()
             if active_url:
-                participants_dict, all_commenter_list, last_id, title, prizes, winners, allow_duplicates, _ = db.get_data(active_url)
+                participants_dict, all_commenter_list, last_id, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(active_url)
                 
                 # 룰렛용 명단 [(이름, 횟수), ...]
                 p_list_for_roulette = [(name, int(count)) for name, count in participants_dict.items()]

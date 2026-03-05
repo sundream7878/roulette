@@ -1280,8 +1280,8 @@
                 showStatus('실시간 업데이트됨 (' + new Date().toLocaleTimeString() + ')', 'success');
             }
 
-            // 데이터가 변했을 때 자동 새로고침 시도 (Supabase RT와 동일한 로직 적용)
-            if (window._scheduleReload) window._scheduleReload('SocketIO_Participants');
+            // 데이터가 변했을 때 자동 새로고침 시도 (관리자 페이지는 명시적 설정 변경 시에만 새로고침)
+            // if (window._scheduleReload) window._scheduleReload('SocketIO_Participants');
         });
 
         socket.on('update_event_settings', (data) => {
@@ -1376,6 +1376,8 @@
             try {
                 var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 sb.channel('monitor-rt')
+                    // 참가자/댓글 변동은 Socket.io를 통한 UI 부분 갱신만 수행하고 전체 새로고침은 하지 않음
+                    /*
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, function (p) {
                         console.log('[Supabase RT] participants:', p.eventType);
                         window._scheduleReload('Supabase_Participants');
@@ -1384,6 +1386,7 @@
                         console.log('[Supabase RT] commenters:', p.eventType);
                         window._scheduleReload('Supabase_Commenters');
                     })
+                    */
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, function (p) {
                         console.log('[Supabase RT] posts:', p.eventType);
                         window._scheduleReload('Supabase_Posts');

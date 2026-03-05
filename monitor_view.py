@@ -20,6 +20,16 @@ ACTIVE_URL_FILE = os.path.join(BASE_DIR, 'active_event.txt')
 
 def set_active_url(url):
     """현재 관리 중인 URL을 파일에 저장합니다."""
+    if not url:
+        try:
+            db.set_active_url(None)
+            if os.path.exists(ACTIVE_URL_FILE):
+                os.remove(ACTIVE_URL_FILE)
+            print("DEBUG: Active URL cleared")
+        except Exception as e:
+            print(f"ERROR: Failed to clear active URL: {e}")
+        return
+
     # 정규화하여 저장
     from standalone_comment_monitor.parsers import parse_post_ids_from_url
     clubid, articleid = parse_post_ids_from_url(url)
@@ -275,6 +285,9 @@ def _broadcast_current_state():
             v = r['count']
             created_at = r.get('created_at')
             p_list.append((a, v, created_at))
+        
+        # [중요] 화살표 불일치 방지: 항상 가나다순 정렬
+        p_list.sort(key=lambda x: x[0])
             
         socketio.emit('update_participants', {
             'participants': p_list,
@@ -423,6 +436,9 @@ def _supabase_poll_loop():
                     created_at = r.get('created_at')
                     p_list.append((a, v, created_at))
                 
+                # [중요] 항상 가나다순 정렬하여 화살표 동기화
+                p_list.sort(key=lambda x: str(x[0]))
+                
                 socketio.emit('update_participants', {
                     'participants': p_list,
                     'full_commenter_list': full_commenters_data,
@@ -500,8 +516,25 @@ def update_event_settings():
             current_winners = event_states[url].get('winners')
             current_allowed_list = event_states[url].get('allowed_list_str')
 
-        db.save_data(url, None, current_last_id, title=title, prizes=prizes, memo=memo, 
-                     winners=current_winners, allow_duplicates=allow_duplicates, allowed_list=current_allowed_list)
+        # [수정] 실제 변경 여부 확인하여 무분별한 새로고침 차단
+        is_changed = False
+        if url in event_states:
+            state = event_states[url]
+            if title is not None and title != state.get('title'): is_changed = True
+            if prizes is not None and prizes != state.get('prizes'): is_changed = True
+            if memo is not None and memo != state.get('memo'): is_changed = True
+            if allow_duplicates is not None and (allow_duplicates == True) != state.get('allow_duplicates'): is_changed = True
+        else:
+            is_changed = True # 상태가 없으면 첫 설정이므로 저장
+
+        if is_changed:
+            db.save_data(url, None, current_last_id, title=title, prizes=prizes, memo=memo, 
+                         winners=current_winners, allow_duplicates=allow_duplicates, allowed_list=current_allowed_list)
+            # db.save_data 내부에서 업데이트를 수행하므로 별도의 db.update_timestamp(url) 호출은 필요 없음
+            # (save_data -> _save_to_local -> datetime.now()로 정해짐)
+            print(f"DEBUG: [Settings] Changes detected for {url}, database updated.")
+        else:
+            print(f"DEBUG: [Settings] No changes detected for {url}, skipping database update.")
         
         # [추가] 설정 저장 시 해당 이벤트를 활성화 (룰렛 화면에 즉시 반영도록)
         set_active_url(url)
@@ -529,11 +562,13 @@ def update_event_settings():
         
         # 소켓 브로드캐스트
         from comment_dart import socketio
+        safe_winners = current_winners if current_winners else ""
         socketio.emit('update_event_settings', {
             'url': url,
             'title': title,
             'prizes': prizes,
             'memo': memo,
+            'winners': safe_winners,
             'allow_duplicates': allow_duplicates
         })
         
@@ -680,8 +715,9 @@ def fetch_comments_route():
                     count = v[0] if isinstance(v, (tuple, list)) else v
                     created_at = v[1] if isinstance(v, (tuple, list)) else None
                     p_list_for_roulette.append((name, count, created_at))
-                # 가나다순 정렬
-                # p_list_for_roulette.sort(key=lambda x: x[0]) # Sorting will be handled by the frontend
+                
+                # [중요] 화살표 불일치 방지: 고정 정렬 순서 보장
+                p_list_for_roulette.sort(key=lambda x: str(x[0]))
                 
                 # 모니터 페이지를 위한 전체 명단 (상태 포함)
                 full_commenters_data = []
@@ -804,6 +840,15 @@ def start_background_monitoring(url):
                                 if writer not in [item['name'] if isinstance(item, dict) else item for item in all_commenters]:
                                     all_commenters.append({'name': writer, 'created_at': c.get('created_at')})
                                 if writer in allowed_list:
+                                    # [중요] 중복 당첨 비허용 시, 이미 당첨된 사람은 명단에서 제외
+                                    allow_duplicates = state.get('allow_duplicates', True)
+                                    winners_str = state.get('winners', '')
+                                    winners_list = [w.strip() for w in winners_str.split(',')] if winners_str else []
+                                    
+                                    if not allow_duplicates and writer in winners_list:
+                                        # 이미 당첨된 사람임 -> 스킵
+                                        continue
+                                        
                                     if writer not in state['participants']:
                                         state['participants'][writer] = (allowed_list[writer], c.get('created_at'))
                                         added_count += 1
@@ -914,9 +959,9 @@ def load_comments():
         # [추가] 명단 동기화 (화이트리스트 업데이트 반영)
         participants_dict, _ = sync_participants_with_whitelist(url, participants_dict, all_commenter_list)
         
-        # [추가] 활성 URL 설정 및 타임스탬프 갱신
+        # [수정] 활성 URL 설정 (새로고침 루프 방지를 위해 타임스탬프 갱신 제거)
         set_active_url(url)
-        db.update_timestamp(url)
+        # db.update_timestamp(url) # [제거] 로드 시마다 타임스탬프를 갱신하면 무한 새로고침 유발
         
         # 로드된 데이터로 메모리 상태 복구/생성 (URL을 키로 사용)
         event_id = url
@@ -984,10 +1029,10 @@ def load_comments():
             'full_commenter_list': full_commenters_data,
             'total_comments': total_comments_count,
             'event_id': event_id,
-            'event_title': title,
-            'event_prizes': prizes,
-            'event_memo': memo,
-            'event_winners': winners,
+            'event_title': title or "",
+            'event_prizes': prizes or "",
+            'event_memo': memo or "",
+            'event_winners': winners or "",
             'allow_duplicates': event_states[event_id].get('allow_duplicates', True), # Use event_states for current state
             'response_id': response_id
         })
@@ -1003,7 +1048,7 @@ def delete_event():
         return jsonify({'error': 'URL이 필요합니다.'}), 400
         
     try:
-        # 1. DB 데이터 삭제
+        # 1. DB 데이터 삭제 (완전 삭제)
         db.clear_data(url)
         
         # 2. 메모리 상태(event_states)에서 해당 URL을 가진 모든 이벤트 제거
@@ -1016,8 +1061,29 @@ def delete_event():
             del event_states[eid]
             print(f"DEBUG: [Memory] Cleared state for event {eid} (URL: {url})")
 
-        # 3. 만약 현재 PARTICIPANTS_FILE에 이 URL의 데이터가 있다면 초기화
-        # (비교 로직이 복잡하므로 그냥 간단히 초기화하거나 유지 - 여기서는 간단히 무시)
+        # 3. 만약 현재 활성 URL이면 상태 파일 및 임시 파일 초기화
+        current_active = None
+        if os.path.exists(ACTIVE_URL_FILE):
+            with open(ACTIVE_URL_FILE, 'r', encoding='utf-8') as f:
+                current_active = normalize_url(f.read().strip())
+        
+        if current_active == url:
+            set_active_url(None)
+            # 임시 파일들 정리
+            for fpath in [PARTICIPANTS_FILE, LAST_COMMENT_FILE]:
+                if os.path.exists(fpath):
+                    with open(fpath, 'w', encoding='utf-8') as f:
+                        f.write("")
+            print(f"DEBUG: [Files] Cleared active files for URL: {url}")
+            
+            # 클라이언트에게 즉시 알림 (화면 초기화 유도)
+            try:
+                from comment_dart import socketio
+                socketio.emit('update_event_settings', {
+                    'title': '', 'prizes': '', 'memo': '', 'winners': '', 'participants': []
+                })
+            except Exception as se:
+                print(f"DEBUG: Socket emit error during delete: {se}")
         
         return jsonify({'message': f'이벤트({url}) 데이터가 성공적으로 삭제되었습니다.'})
     except Exception as e:

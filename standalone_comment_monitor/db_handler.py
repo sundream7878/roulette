@@ -203,15 +203,22 @@ class CommentDatabase:
         """특정 URL의 데이터를 삭제 (새로운 수집 시 리셋용)"""
         if self.supabase:
             try:
-                # 참가자 및 댓글 데이터만 삭제하고 포스트 정보(제목 등)는 유지할지 고민 필요
-                # 현재는 완전 초기화를 위해 포스트도 삭제하지만, 이로 인해 설정이 날아감.
-                # 명단 유지를 위해 참가자/댓글만 삭제하도록 변경 권장.
+                # 완전한 초기화를 위해 포스트 정보(제목, 당첨자 등)도 모두 삭제
                 self.supabase.table("participants").delete().eq("url", url).execute()
                 self.supabase.table("commenters").delete().eq("url", url).execute()
-                # self.supabase.table("posts").delete().eq("url", url).execute() # 포스트 삭제 주석 처리
-                print(f"DEBUG: [Supabase] Cleared participants/commenters for URL: {url} (Post settings preserved)")
+                self.supabase.table("posts").delete().eq("url", url).execute() 
+                print(f"DEBUG: [Supabase] Fully cleared data for URL: {url}")
             except Exception as e:
                 print(f"DEBUG: [Supabase Error] clear_data: {e}")
+        
+        # 로컬 DB도 완전 삭제
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM participants WHERE url = ?", (url,))
+            cursor.execute("DELETE FROM commenters WHERE url = ?", (url,))
+            cursor.execute("DELETE FROM posts WHERE url = ?", (url,))
+            conn.commit()
+            print(f"DEBUG: [DB] Fully cleared data for URL: {url}")
         
         # 로컬 DB 저장은 생략
         # with self._get_connection() as conn:
@@ -426,8 +433,19 @@ class CommentDatabase:
         if self.supabase:
             # Supabase requires a WHERE clause for updates. We use a dummy .neq() to satisfy this.
             self.supabase.table("posts").update({"is_active": False}).neq("url", "dummy_bypass_string").execute()
-            self.supabase.table("posts").upsert({"url": url, "is_active": True}, on_conflict="url").execute()
-            print(f"DEBUG: [Supabase] Active URL set: {url}")
+            if url:
+                self.supabase.table("posts").upsert({"url": url, "is_active": True}, on_conflict="url").execute()
+                print(f"DEBUG: [Supabase] Active URL set: {url}")
+            else:
+                print(f"DEBUG: [Supabase] All URLs deactivated")
+
+        # [로컬 DB] 행위 추가
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE posts SET is_active = 0")
+            if url:
+                cursor.execute("INSERT OR REPLACE INTO posts (url, is_active) VALUES (?, 1)", (url,))
+            conn.commit()
 
     @retry_supabase
     def get_active_url(self) -> str:
@@ -435,17 +453,20 @@ class CommentDatabase:
         if self.supabase:
             res = self.supabase.table("posts").select("url").eq("is_active", True).limit(1).execute()
             if res.data: return res.data[0]["url"]
-            res = self.supabase.table("posts").select("url").order("updated_at", desc=True).limit(1).execute()
-            if res.data: return res.data[0]["url"]
+            # 삭제된 게시글이 자동으로 되살아나지 않도록 최근 데이터 불러오는 폴백 로직 제거
+            # res = self.supabase.table("posts").select("url").order("updated_at", desc=True).limit(1).execute()
+            # if res.data: return res.data[0]["url"]
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT url FROM posts WHERE is_active = 1 LIMIT 1")
             row = cursor.fetchone()
             if row: return row[0]
-            cursor.execute("SELECT url FROM posts ORDER BY updated_at DESC LIMIT 1")
-            row = cursor.fetchone()
-            return row[0] if row else None
+            # [로컬] 최근 데이터 폴백도 제거하여 좀비 현상 방지
+            # cursor.execute("SELECT url FROM posts ORDER BY updated_at DESC LIMIT 1")
+            # row = cursor.fetchone()
+            # return row[0] if row else None
+        return None
 
     @retry_supabase
     def update_timestamp(self, url: str):
@@ -454,11 +475,12 @@ class CommentDatabase:
             self.supabase.table("posts").update({"updated_at": datetime.now().isoformat()}).eq("url", url).execute()
             print(f"DEBUG: [Supabase] Updated timestamp for URL: {url}")
         
-        # 로컬 DB 통신 생략
-        # with self._get_connection() as conn:
-        #     cursor = conn.cursor()
-        #     cursor.execute('UPDATE posts SET updated_at = ? WHERE url = ?', (datetime.now(), url))
-        #     conn.commit()
+        # [수정] 로컬 DB 타임스탬프도 반드시 갱신해야 Stale Protection이 정상 작동함
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('UPDATE posts SET updated_at = ? WHERE url = ?', (datetime.now(), url))
+            conn.commit()
+            print(f"DEBUG: [Local DB] Updated timestamp for URL: {url}")
 
     @retry_supabase
     def get_data(self, url: str, local_only: bool = False) -> Tuple[Dict[str, int], str, List[dict], str, str, str, str, bool, str]:
@@ -499,40 +521,45 @@ class CommentDatabase:
                 if res.data:
                     post = res.data[0]
                     
-                    # [추가] 로컬 데이터가 아주 최근(5초 이내)에 업데이트되었다면, 
-                    # Supabase의 아직 반영되지 않았을 수도 있는(stale) 데이터를 무시하고 로컬을 우선함.
-                    is_stale_protection = False
-                    with self._get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT updated_at FROM posts WHERE url = ?", (url,))
-                        row = cursor.fetchone()
-                        if row and row[0]:
-                            try:
-                                # SQLite stores datetime objects as strings with microseconds: '2023-10-27 12:34:56.123456'
-                                # We split by '.' to handle both with and without microseconds
-                                ts_str = row[0].split('.')[0]
-                                local_updated = datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S')
-                                if (datetime.now() - local_updated).total_seconds() < 7: # 조금 더 넉넉하게 7초로 연장
-                                    is_stale_protection = True
-                                    print(f"DEBUG: Stale protection active for {url} (Local update < 7s ago)")
-                            except Exception as te:
-                                print(f"DEBUG: Timestamp parse error: {te} for {row[0]}")
+                    # [수정] 지능형 Stale Protection: 클라우드 데이터가 로컬보다 과거의 것이라면 덮어쓰지 않음
+                    sb_updated_str = post.get('updated_at')
+                    is_cloud_stale = False
+                    
+                    if sb_updated_str:
+                        try:
+                            # Supabase ISO format (often has T and Z)
+                            sb_ts = sb_updated_str.replace('T', ' ').replace('Z', '').split('+')[0].split('.')[0]
+                            sb_updated = datetime.strptime(sb_ts, '%Y-%m-%d %H:%M:%S')
+                            
+                            with self._get_connection() as conn:
+                                cursor = conn.cursor()
+                                cursor.execute("SELECT updated_at FROM posts WHERE url = ?", (url,))
+                                row = cursor.fetchone()
+                                if row and row[0]:
+                                    ts_str = row[0].split('.')[0]
+                                    local_updated = datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S')
+                                    # 클라우드가 로컬보다 1초 이상 과거면 stale로 간주 (네트워크 시간차 감안)
+                                    if sb_updated < local_updated:
+                                        is_cloud_stale = True
+                                        print(f"DEBUG: Cloud data for {url} is stale (older than local). Protecting local data.")
+                        except Exception as e:
+                            print(f"DEBUG: Timestamp comparison error: {e}")
 
-                    # Cloud 데이터가 있으면 우선하되, None인 필드는 Local 유지
-                    # 단, stale protection 중일 때는 중요 필드(winners, prizes 등)는 로컬을 우선함
+                    # 데이터 병합 (stale이 아닐 때만 덮어씀. stale이더라도 로컬이 비어있으면 덮어씀)
                     if post.get('last_comment_id'): last_id = post['last_comment_id']
                     
-                    if not is_stale_protection or not title:
-                        if post.get('title'): title = post['title']
-                    if not is_stale_protection or not prizes:
-                        if post.get('prizes'): prizes = post['prizes']
-                    if not is_stale_protection or not memo:
-                        if post.get('memo'): memo = post['memo']
-                    if not is_stale_protection or not winners:
-                        if post.get('winners'): winners = post['winners']
-                    
-                    if post.get('allowed_list'): allowed_list = post['allowed_list']
-                    if post.get('allow_duplicates') is not None: allow_duplicates = bool(post['allow_duplicates'])
+                    if not is_cloud_stale or not title:
+                        if post.get('title') is not None: title = post['title']
+                    if not is_cloud_stale or not prizes:
+                        if post.get('prizes') is not None: prizes = post['prizes']
+                    if not is_cloud_stale or not memo:
+                        if post.get('memo') is not None: memo = post['memo']
+                    if not is_cloud_stale or not winners:
+                        if post.get('winners') is not None: winners = post['winners']
+                    if not is_cloud_stale or not allowed_list:
+                        if post.get('allowed_list') is not None: allowed_list = post['allowed_list']
+                    if not is_cloud_stale or allow_duplicates is None:
+                        if post.get('allow_duplicates') is not None: allow_duplicates = bool(post['allow_duplicates'])
 
                 # Participants 가져오기
                 try:
@@ -543,8 +570,9 @@ class CommentDatabase:
                     else: raise e
                 
                 if res.data:
-                    # Cloud에 데이터가 있으면 덮어씀 (동기화의 핵심)
-                    participants = {row['author']: (row['count'], row.get('created_at')) for row in res.data}
+                    # [수정] stale protection 중일 때는 Supabase의 데이터로 덮어쓰지 않음
+                    if not is_cloud_stale:
+                        participants = {row['author']: (row['count'], row.get('created_at')) for row in res.data}
                 
                 # Commenters 가져오기
                 try:
@@ -555,7 +583,8 @@ class CommentDatabase:
                     else: raise e
                 
                 if res.data:
-                    all_commenters = [{'name': row['author'], 'created_at': row.get('created_at')} for row in res.data]
+                    if not is_cloud_stale:
+                        all_commenters = [{'name': row['author'], 'created_at': row.get('created_at')} for row in res.data]
 
             except Exception as e:
                 print(f"DEBUG: [Supabase Merge Error] {e}")

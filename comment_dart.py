@@ -31,8 +31,9 @@ def get_active_url():
         # 백업: 파일에서 가져오기
         if os.path.exists(ACTIVE_URL_FILE):
             with open(ACTIVE_URL_FILE, 'r', encoding='utf-8') as f:
-                url = f.read().strip()
-                return normalize_url(url)
+                content = f.read().strip()
+                if content:
+                    return normalize_url(content)
     except: pass
     return None
 
@@ -165,8 +166,12 @@ def guest_view():
                 _, _, _, title, prizes, memo, winners, _, _ = db.get_data(active_url)
         except: pass
 
-    # 사전 참여 명단 (화이트리스트)
-    allowed_names = sorted(get_allowed_list().keys()) if HAS_MONITOR else []
+    # 사전 참여 명단 (화이트리스트) 및 가나다순 정렬 (확정자 우선)
+    if HAS_MONITOR:
+        raw_allowed = [unicodedata.normalize('NFC', n.strip()) for n in get_allowed_list().keys()]
+        allowed_names = sorted(raw_allowed, key=lambda x: (x not in confirmed_names, x))
+    else:
+        allowed_names = []
 
     return render_template('index.html',
                            participants=p_list,
@@ -192,11 +197,22 @@ def load_participants(filename="participants.txt"):
         try:
             active_url = get_active_url()
             if active_url:
-                participants_dict, _, _, _, _, _, _, _, _ = db.get_data(active_url)
+                participants_dict, _, _, _, _, _, winners_str, allow_duplicates, _ = db.get_data(active_url)
                 if participants_dict:
+                    # [추가] 중복 당첨 비허용 시 기존 당첨자 명단 제외
+                    won_names = []
+                    if winners_str:
+                        won_names = [w.strip() for w in winners_str.split(',') if w.strip()]
+                    
+                    policy_allow_duplicates = (allow_duplicates != False)
+                    
                     # 룰렛 엔진용 리스트 형식으로 변환: (이름, 횟수, 시간)
                     participants = []
                     for name, v in participants_dict.items():
+                        if not policy_allow_duplicates and name in won_names:
+                            print(f"DEBUG: [Filter] Skipping previous winner: {name}")
+                            continue
+                            
                         count = v[0] if isinstance(v, (tuple, list)) else v
                         created_at = v[1] if isinstance(v, (tuple, list)) else None
                         participants.append((name, int(count), created_at))
@@ -277,8 +293,12 @@ def index():
                 _, _, _, title, prizes, memo, winners, _, _ = db.get_data(active_url)
         except: pass
 
-    # 사전 참여 명단 (화이트리스트)
-    allowed_names = sorted([unicodedata.normalize('NFC', n.strip()) for n in get_allowed_list().keys()]) if HAS_MONITOR else []
+    # 사전 참여 명단 (화이트리스트) 및 가나다순 정렬 (확정자 우선)
+    if HAS_MONITOR:
+        raw_allowed = [unicodedata.normalize('NFC', n.strip()) for n in get_allowed_list().keys()]
+        allowed_names = sorted(raw_allowed, key=lambda x: (x not in confirmed_names, x))
+    else:
+        allowed_names = []
 
     if current_user.is_authenticated:
         return render_template('index.html',
@@ -330,7 +350,7 @@ def handle_start_rotation(data):
     print("Received start_rotation with data:", data)
     user_id = current_user.id if current_user.is_authenticated else 'anonymous'
     
-    # 기존 게임 정보 초기화
+    # 기존 게임 정보 초기화 또는 신규 생성
     if user_id not in games:
         games[user_id] = {
             'running': False,
@@ -338,13 +358,15 @@ def handle_start_rotation(data):
             'current_angle': 0.0,
             'final_winner': None,
             'winner_announced': False,
-            'confirmed': False  # 당첨자 확정 상태 초기화
+            'confirmed': False 
         }
-        # 기존 게임 객체가 있으면 상태 초기화
-        games[user_id]['winner_announced'] = False
-        games[user_id]['confirmed'] = False  # 확정 플래그 리셋 (다음 스핀을 위해 필수)
     
+    # [수정] 매 스핀마다 상태를 확실히 초기화 (기존에는 if문 안에 있어 버그 발생)
     game = games[user_id]
+    game['winner_announced'] = False
+    game['confirmed'] = False
+    game['final_winner'] = None
+    game['running'] = False
 
     now = datetime.datetime.utcnow()
     t_str = data['time']
@@ -400,7 +422,8 @@ def handle_start_rotation(data):
     socketio.emit('start_game', {
         'duration': duration,
         'finalAngle': final_angle,
-        'winner': winner
+        'winner': winner,
+        'participants': p_list # 정확한 명단 동기화
     }, namespace='/')
         
     # 모든 클라이언트에게 게임 상태 정보 브로드캐스트
@@ -506,16 +529,35 @@ def handle_confirm_winner(data=None):
                         print(f"DEBUG: Removed winner '{winner}' from participants (No Duplicates Policy)")
                 
                 # 3. 저장 (기존 데이터 보존하며 winners 및 participants 업데이트)
-                # participants_dict 업데이트 된 내용 반영
-                db.save_data(active_url, participants, last_id if last_id else '', winners=new_winners_str)
+                # [수정] save_data 시 winners 뿐만 아니라 participants도 명시적으로 전달하여 명단 제외 반영
+                db.save_data(active_url, participants, last_id if last_id else '', 
+                             title=title, prizes=prizes, memo=memo, 
+                             winners=new_winners_str, allow_duplicates=allow_duplicates)
                 
-                # [추가] participants.txt 파일 동기화 (룰렛 엔진용)
-                if not allow_duplicates:
-                    sync_files(participants, last_id if last_id else '')
+                # [추가] 룰렛 엔진이 참조하는 participants.txt 파일도 강제 동기화 (설정 무관하게 현재 participants 상태 반영)
+                sync_files(participants, last_id if last_id else '')
                     
                 print(f"DEBUG: Saved winners to DB: {new_winners_str}")
+
+                # 4. 실시간 설정 브로드캐스트 (당첨자 명단 및 모든 설정 갱신을 위해)
+                socketio.emit('update_event_settings', {
+                    'url': active_url,
+                    'title': title,
+                    'prizes': prizes,
+                    'memo': memo,
+                    'winners': new_winners_str
+                }, namespace='/')
                 
-                # 4. 브로드캐스트
+                # 4. 브로드캐스트 전 메모리 상태 업데이트 (monitor_view 와 공유)
+                if active_url in event_states:
+                    event_states[active_url]['winners'] = new_winners_str
+                    event_states[active_url]['participants'] = participants
+                    if not allow_duplicates:
+                        # 이미 당첨된 사람을 seen_ids 에서도 관리하여 재진입 방지 (선택 사항)
+                        # event_states[active_url].setdefault('seen_ids', set()).add(winner)
+                        pass
+
+                # 5. 브로드캐스트
                 socketio.emit('update_event_settings', {
                     'winners': new_winners_str,
                     'prizes': prizes

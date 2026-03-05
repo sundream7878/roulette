@@ -1,10 +1,14 @@
-from flask_cors import CORS
+import sys
 import os
+import time
+import json
+import sqlite3
+import unicodedata
 import random
 import datetime
-import time
 
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, send_from_directory, request, jsonify, Blueprint, redirect, url_for, flash
+from flask_cors import CORS
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user
 from wtforms import Form, StringField, PasswordField, SubmitField
 from wtforms.validators import DataRequired
@@ -151,6 +155,9 @@ def guest_view():
     memo = None
     winners = None
     active_url = None
+    p_list = load_participants()
+    confirmed_names = [unicodedata.normalize('NFC', p[0].strip()) for p in p_list] if p_list else []
+    
     if HAS_MONITOR:
         try:
             active_url = get_active_url()
@@ -163,6 +170,7 @@ def guest_view():
 
     return render_template('index.html',
                            participants=p_list,
+                           confirmed_names=confirmed_names,
                            colors=p_colors,
                            user=None,
                            is_guest=True,
@@ -186,13 +194,18 @@ def load_participants(filename="participants.txt"):
             if active_url:
                 participants_dict, _, _, _, _, _, _, _, _ = db.get_data(active_url)
                 if participants_dict:
-                    # 룰렛 엔진용 리스트 형식으로 변환
-                    participants = [(name, int(count)) for name, count in participants_dict.items()]
+                    # 룰렛 엔진용 리스트 형식으로 변환: (이름, 횟수, 시간)
+                    participants = []
+                    for name, v in participants_dict.items():
+                        count = v[0] if isinstance(v, (tuple, list)) else v
+                        created_at = v[1] if isinstance(v, (tuple, list)) else None
+                        participants.append((name, int(count), created_at))
+                    
                     participants.sort(key=lambda x: x[0])
                     
                     # 별명 100개 이상이면 숫자로 대체 (기존 로직 유지)
                     if len(participants) > 100:
-                        participants = [(f"{i+1}", count) for i, (name, count) in enumerate(participants)]
+                        participants = [(f"{i+1}", p[1], p[2]) for i, p in enumerate(participants)]
                     
                     print(f"DEBUG: Loaded {len(participants)} participants from DB for {active_url}")
                     return participants
@@ -222,11 +235,11 @@ def load_participants(filename="participants.txt"):
                 count = 1.0
             participants_dict[name] = participants_dict.get(name, 0) + count
 
-        participants = [(name, int(count)) for name, count in participants_dict.items()]
+        participants = [(name, int(count), None) for name, count in participants_dict.items()]
         participants.sort(key=lambda x: x[0])
         
         if len(participants) > 100:
-            participants = [(f"{i+1}", count) for i, (name, count) in enumerate(participants)]
+            participants = [(f"{i+1}", p[1], p[2]) for i, p in enumerate(participants)]
         
         print(f"DEBUG: Loaded {len(participants)} participants from file {filename}")
         return participants
@@ -243,6 +256,7 @@ def load_participants(filename="participants.txt"):
 def index():
     p_data = load_participants()
     p_list = p_data if p_data else []
+    confirmed_names = [unicodedata.normalize('NFC', p[0].strip()) for p in p_list] if p_list else []
     
     # colors 리스트 생성
     p_colors = []
@@ -264,11 +278,12 @@ def index():
         except: pass
 
     # 사전 참여 명단 (화이트리스트)
-    allowed_names = sorted(get_allowed_list().keys()) if HAS_MONITOR else []
+    allowed_names = sorted([unicodedata.normalize('NFC', n.strip()) for n in get_allowed_list().keys()]) if HAS_MONITOR else []
 
     if current_user.is_authenticated:
         return render_template('index.html',
                              participants=p_list,
+                             confirmed_names=confirmed_names,
                              colors=p_colors,
                              user=current_user,
                              title=title,
@@ -301,7 +316,10 @@ def handle_disconnect():
 
 @socketio.on('reset_game')
 def handle_reset_game():
-    print("Game reset request received")
+    print("Game reset request received - clearing all game states")
+    global games
+    # 모든 게임 상태 초기화
+    games.clear()
     socketio.emit('game_reset_complete', namespace='/')
 
 @socketio.on('start_rotation')
@@ -319,11 +337,12 @@ def handle_start_rotation(data):
             'target_time': None,
             'current_angle': 0.0,
             'final_winner': None,
-            'winner_announced': False  # 당첨자 발표 상태 추가
+            'winner_announced': False,
+            'confirmed': False  # 당첨자 확정 상태 초기화
         }
-    else:
-        # 기존 게임 객체가 있으면 winner_announced 상태 초기화
+        # 기존 게임 객체가 있으면 상태 초기화
         games[user_id]['winner_announced'] = False
+        games[user_id]['confirmed'] = False  # 확정 플래그 리셋 (다음 스핀을 위해 필수)
     
     game = games[user_id]
 
@@ -414,11 +433,14 @@ def handle_confirm_winner(data=None):
     user_id = current_user.id if current_user.is_authenticated else 'anonymous'
     
     # 먼저 user_id로 게임 정보 확인
+    game_obj = None
     if user_id in games and games[user_id]['final_winner']:
-        winner = games[user_id]['final_winner']
+        game_obj = games[user_id]
+        winner = game_obj['final_winner']
     # global_game에서도 확인 (추가된 부분)
     elif 'global_game' in games and games['global_game'].get('final_winner'):
-        winner = games['global_game']['final_winner']
+        game_obj = games['global_game']
+        winner = game_obj['final_winner']
     # 다른 진행 중인 게임이 있는지 확인 (추가된 부분)
     else:
         winner = None
@@ -426,33 +448,48 @@ def handle_confirm_winner(data=None):
         latest_game = None
         latest_time = None
         
-        for gid, game in games.items():
-            if game.get('target_time') and game.get('final_winner'):
-                if latest_time is None or game['target_time'] > latest_time:
-                    latest_time = game['target_time']
-                    latest_game = game
+        for gid, g in games.items():
+            if isinstance(g, dict) and g.get('target_time') and g.get('final_winner'):
+                if latest_time is None or g['target_time'] > latest_time:
+                    latest_time = g['target_time']
+                    latest_game = g
         
         if latest_game:
+            game_obj = latest_game
             winner = latest_game['final_winner']
+            print(f"DEBUG: Found latest game for {user_id}, winner: {winner}")
     
     # 당첨자를 찾았으면 발표
     if winner:
+        # [중요] 중복 처리 방지 (여러 탭이 열려 있어도 한 번만 처리)
+        if game_obj and game_obj.get('confirmed'):
+            print(f"DEBUG: 이미 확정 처리된 당첨자입니다: {winner}")
+            return
+            
+        if game_obj:
+            game_obj['confirmed'] = True
+            # global_game 도 같이 업데이트 (동기화)
+            if 'global_game' in games:
+                games['global_game']['confirmed'] = True
+                
         print(f"DEBUG: 확정된 당첨자: {winner}")
         
         print(f"DEBUG: 당첨자 확정: {winner} (현재 active URL에 저장 시도)")
         
         try:
-            # 클라이언트에서 전달받은 URL 사용 (없으면 폴백으로 현재 활성 URL)
             active_url = normalize_url(data.get('url')) if data.get('url') else get_active_url()
+            print(f"DEBUG: Confirming winner for URL: {active_url}")
             if active_url:
                 # 1. 현재 데이터 모두 가져오기 (덮어쓰기 방지)
-                participants, all_commenters, last_id, title, prizes, memo, current_winners_str, allow_duplicates, _ = db.get_data(active_url)
+                dataset = db.get_data(active_url)
+                if not dataset or not dataset[0]:
+                    print(f"WARNING: No participants found for {active_url}. Skipping confirmation.")
+                    socketio.emit('error', {'message': '이벤트 데이터를 찾을 수 없습니다.'}, namespace='/')
+                    return
+                
+                participants, last_id, all_commenters, title, prizes, memo, current_winners_str, allow_duplicates, _ = dataset
                 
                 print(f"DEBUG: Policy - Allow Duplicates: {allow_duplicates}, Participants count: {len(participants)}")
-                
-                if not participants:
-                    print(f"WARNING: No participants found for {active_url}. Skipping confirmation to prevent data loss.")
-                    return
                 
                 current_winners = []
                 if current_winners_str:
@@ -546,7 +583,7 @@ def handle_request_game_status():
         try:
             active_url = get_active_url()
             if active_url:
-                participants_dict, all_commenter_list, last_id, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(active_url)
+                participants_dict, last_id, all_commenter_list, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(active_url)
                 
                 # 룰렛용 명단 [(이름, 횟수), ...]
                 p_list_for_roulette = [(name, int(count)) for name, count in participants_dict.items()]

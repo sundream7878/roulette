@@ -252,15 +252,8 @@
         }
 
         #result-container {
-            text-align: center;
-            margin-top: 15px;
-            padding: 10px;
-            background-color: #fff;
-            border-radius: 8px;
-            border: 1px dashed #4CAF50;
-            width: 100%;
-            min-height: 80px;
-            /* 고정 최소 높이로 떨림 방지 */
+            display: none;
+            /* 사용자 요청으로 숨김 */
         }
 
         #winner {
@@ -304,6 +297,55 @@
             to {
                 color: transparent;
             }
+        }
+
+        /* 당첨자 오버레이 애니메이션 */
+        @keyframes winner-popup {
+            0% {
+                transform: translate(-50%, -50%) scale(0.5);
+                opacity: 0;
+            }
+
+            70% {
+                transform: translate(-50%, -50%) scale(1.1);
+                opacity: 1;
+            }
+
+            100% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 1;
+            }
+        }
+
+        #winner-overlay {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(240, 240, 240, 0.9) 100%);
+            padding: 40px 60px;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3), 0 0 20px rgba(76, 175, 80, 0.2);
+            z-index: 1000;
+            border: 2px solid #4CAF50;
+            min-width: 300px;
+        }
+
+        #winner-name-v2 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            color: #2e7d32;
+            display: block;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        #congrat-msg {
+            font-size: 1.5rem;
+            color: #555;
+            font-weight: 600;
         }
 
         /* 게임 레이아웃 컨테이너 */
@@ -473,14 +515,13 @@
             <div id="rotating-container">
                 <canvas id="dart-chart"></canvas>
             </div>
-            <div id="winner-overlay"
-                style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(255, 255, 255, 0.8); padding: 20px; border-radius: 10px; font-size: 2em; font-weight: bold; box-shadow: 0 0 10px rgba(0,0,0,0.5); z-index: 100;">
-                <span id="winner-name"></span>
+            <div id="winner-overlay">
+                <span id="winner-name-v2"></span>
+                <div id="congrat-msg">썬드림 이벤트 당첨을 축하드립니다!! 🎊</div>
             </div>
         </div>
 
         <!-- 전체 명단 (사전 참여 명단) -->
-        {% set confirmed_set = participants | map(attribute=0) | list %}
         <div id="all-participants-container">
             <div style="margin-bottom: 6px;">
                 <strong>📋 전체 명단</strong>
@@ -492,8 +533,25 @@
             </div>
             {% if allowed_names %}
             {% for name in allowed_names %}
-            <div class="all-participant-item {% if name in confirmed_set %}is-confirmed{% endif %}">
-                {% if name in confirmed_set %}
+            {# 확정 여부 확인 (namespace 및 confirmed_names 사용하여 견고하게 처리) #}
+            {% set ns = namespace(is_confirmed=false) %}
+            {% set clean_name = name.strip() %}
+
+            {% if confirmed_names is defined and confirmed_names %}
+            {% if clean_name in confirmed_names %}
+            {% set ns.is_confirmed = true %}
+            {% endif %}
+            {% else %}
+            {# fallback: participants 리스트 직접 검색 #}
+            {% for p in participants %}
+            {% if p[0].strip() == clean_name %}
+            {% set ns.is_confirmed = true %}
+            {% endif %}
+            {% endfor %}
+            {% endif %}
+
+            <div class="all-participant-item {% if ns.is_confirmed %}is-confirmed{% endif %}">
+                {% if ns.is_confirmed %}
                 <span class="confirmed-badge">✅</span>
                 {% else %}
                 <span class="confirmed-badge" style="visibility:hidden;">✅</span>
@@ -554,6 +612,8 @@
         let chart;
         let countdownInterval = null;
         let targetDateTime = null;
+        let gameIsActive = false; // 전역 선언 추가
+        window._gameIsActive = false; // Supabase RT용 선언 초기화
 
         // 오디오 관련 변수
         let beepSound = null;
@@ -897,6 +957,7 @@
             socket.on('start_game', function (data) {
                 console.log('게임 시작:', data);
                 gameIsActive = true; // 룰릿 회전 중 → 자동 새로고침 안 함
+                window._gameIsActive = true;
                 if (document.getElementById('start-button')) {
                     document.getElementById('start-button').disabled = true;
                 }
@@ -1006,6 +1067,7 @@
 
             socket.on('update_winner', function (data) {
                 gameIsActive = false; // 게임 종료 → 이제 자동 새로고침 허용
+                window._gameIsActive = false;
                 stopAllSounds();
 
                 // winner 요소 null 체크
@@ -1034,27 +1096,21 @@
                     }, 3000);
                 }
 
-                // 당첨자 이름 오버레이 표시 - 수정된 부분
+                // 당첨자 이름 오버레이 표시 - 사용자 요청으로 중앙 거대 표시
                 const winnerOverlay = document.getElementById('winner-overlay');
-                const winnerNameSpan = document.getElementById('winner-name');
+                const winnerNameSpan = document.getElementById('winner-name-v2');
 
                 if (winnerOverlay && winnerNameSpan) {
-                    winnerNameSpan.innerText = data.winner;
+                    winnerNameSpan.innerText = data.winner + '님';
                     winnerOverlay.style.display = 'block';
 
-                    // 단순한 스타일 적용
-                    winnerOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-                    winnerOverlay.style.color = '#fff';
-                    winnerOverlay.style.textShadow = '0px 0px 5px rgba(255, 255, 255, 0.7)';
+                    // 애니메이션 효과 (CSS에 정의된 winner-popup 사용)
+                    winnerOverlay.style.animation = 'winner-popup 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
 
-                    // 애니메이션 효과 (크기 확대)
-                    winnerOverlay.style.animation = 'winner-popup 1s ease-out';
-
-                    // 5초 후 오버레이 숨기기 및 페이지 자동 새로고침 (데이터 동기화)
+                    // 5초 후 오버레이 숨기기
                     setTimeout(() => {
                         winnerOverlay.style.display = 'none';
-                        console.log('자동 새로고침 실행 (5초 경과)');
-                        window.location.reload();
+                        console.log('당첨자 오버레이 숨김 (5초 경과)');
                     }, 5000);
                 }
 
@@ -1113,6 +1169,7 @@
 
             socket.on('game_reset_complete', function () {
                 gameIsActive = false; // 리셋 → 자동 새로고침 허용
+                window._gameIsActive = false;
                 console.log("게임 리셋 완료");
                 if (document.getElementById('start-button')) {
                     document.getElementById('start-button').disabled = false;
@@ -1145,16 +1202,9 @@
                         const prizeListEl = document.getElementById('prize-list');
                         if (prizeListEl) {
                             if (ed.prizes !== undefined) prizeListEl.dataset.prizes = ed.prizes || '';
+                            if (ed.winners !== undefined) prizeListEl.dataset.winners = ed.winners || '';
 
-                            const currentPrizes = prizeListEl.dataset.prizes || '';
-
-                            if (currentPrizes.trim()) {
-                                const pList = currentPrizes.split('\n').map(p => p.trim()).filter(p => p);
-
-                                prizeListEl.innerHTML = pList.map((prize, index) => {
-                                    return `<div class="prize-item"><span>${prize}</span></div>`;
-                                }).join('');
-                            }
+                            renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
                         }
                     }
 
@@ -1300,22 +1350,21 @@
 
                 // 1. 차트 갱신
                 if (chart) {
-                    chart.data.labels = p_list.map(p => p[0]);
-                    chart.data.datasets[0].data = p_list.map(p => p[1]);
+                    chart.data.labels = p_list.map(p => Array.isArray(p) ? p[0] : (p.name || p.author));
+                    chart.data.datasets[0].data = p_list.map(p => Array.isArray(p) ? p[1] : p.count);
                     chart.data.datasets[0].backgroundColor = colors;
-                    chart.update();
+                    chart.update('none');
                 }
 
                 // 2. 전체 명단 갱신
                 const allContainer = document.getElementById('all-participants-container');
                 if (allContainer) {
-                    const confirmedNames = new Set(p_list.map(p => p[0]));
-                    // 템플릿에서 렌더링된 초기 명단을 유지하거나, 서버에서 allowed_names를 따로 받아야 할 수도 있음.
-                    // 현재는 p_list(확정 명단)가 업데이트될 때 ✅ 표시만 실시간으로 갱신하는 방향으로 처리.
+                    const confirmedNames = new Set(p_list.map(p => Array.isArray(p) ? p[0] : (p.name || p.author)));
                     const items = allContainer.querySelectorAll('.all-participant-item');
                     if (items.length > 0) {
                         items.forEach(item => {
-                            const nameSpan = item.querySelector('span:not(.confirmed-badge)');
+                            // 명시적으로 span 내부의 텍스트만 가져오도록 수정
+                            const nameSpan = item.querySelector('span:last-child');
                             if (nameSpan) {
                                 const name = nameSpan.innerText.trim();
                                 const badge = item.querySelector('.confirmed-badge');
@@ -1332,15 +1381,15 @@
                 }
             }
 
-            // 게임이 돌고 있는지 추적하는 플래그
-            let gameIsActive = false;
+            // 게임이 돌고 있는지 추적하는 플래그 (위에서 전역 선언됨)
 
             socket.on('update_participants', function (data) {
                 console.log('참가자 변경 감지', data);
                 if (!gameIsActive) {
                     // 게임 중이 아닐 때는 전체 페이지 새로고침하여 최신 명단 렌더링
-                    console.log('게임 대기 중: 자동 새로고침 실행');
-                    window.location.reload();
+                    console.log('참가자 변경 감지: 자동 새로고침 예약');
+                    if (window._scheduleReload) window._scheduleReload('SocketIO');
+                    else window.location.reload();
                 } else {
                     // 게임 중일 때는 차트만 업데이트 (새로고침 방지)
                     if (data.participants) {
@@ -1361,22 +1410,42 @@
                 prizeListEl.dataset.prizes = initialPrizes;
                 prizeListEl.dataset.winners = initialWinners;
                 console.log('초기 데이터 속성 설정 완료');
+                // 초기 로드 시 사은품 및 당첨자 목록 렌더링
+                renderPrizes(initialPrizes, initialWinners);
+            }
+
+            // 상품 및 당첨자 렌더링 함수
+            function renderPrizes(prizesText, winnersText) {
+                const prizeListEl = document.getElementById('prize-list');
+                if (!prizeListEl) return;
+
+                const pList = (prizesText || '').split('\n').map(p => p.trim()).filter(p => p);
+                const wList = (winnersText || '').split(',').map(w => w.trim()).filter(w => w);
+
+                prizeListEl.innerHTML = pList.map((prize, index) => {
+                    const winnerName = wList[index] ? `: <strong style="color: #e91e63;">${wList[index]}님</strong>` : '';
+                    return `<div class="prize-item"><span>${prize}${winnerName}</span></div>`;
+                }).join('');
             }
 
             socket.on('update_event_settings', (data) => {
-                console.log('이벤트 설정 변경 감지 → 자동 새로고침', data);
+                console.log('이벤트 설정 변경 감지', data);
+
+                const prizeListEl = document.getElementById('prize-list');
+                if (prizeListEl) {
+                    if (data.prizes !== undefined) prizeListEl.dataset.prizes = data.prizes;
+                    if (data.winners !== undefined) prizeListEl.dataset.winners = data.winners;
+                    // 게임 중이라도 사은품 목록은 항상 최신화 (당첨자 표시를 위해)
+                    renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
+                }
+
                 if (!gameIsActive) {
-                    window.location.reload();
+                    console.log('이벤트 설정 변경 감지: 자동 새로고침 예약');
+                    if (window._scheduleReload) window._scheduleReload('SocketIO');
+                    else window.location.reload();
                 } else {
                     // 게임 중일 때는 DOM만 업데이트
                     if (data.title) document.getElementById('event-title-display').innerText = data.title;
-                    if (data.prizes !== undefined) {
-                        const prizeListEl = document.getElementById('prize-list');
-                        if (prizeListEl && data.prizes) {
-                            const pList = data.prizes.split('\n').map(p => p.trim()).filter(p => p);
-                            prizeListEl.innerHTML = pList.map((prize) => `<div class="prize-item"><span>${prize}</span></div>`).join('');
-                        }
-                    }
                     if (data.memo !== undefined) {
                         const memoEl = document.getElementById('memo-text');
                         const memoContainer = document.getElementById('memo-container');
@@ -1395,24 +1464,44 @@
         (function () {
             var SUPABASE_URL = 'https://kbnszmnmvppfbdpdefqw.supabase.co';
             var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtibnN6bW5tdnBwZmJkcGRlZnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNzU2MDgsImV4cCI6MjA4NzY1MTYwOH0.nFTpkNsG5Wk3Q10khoAYNyA0UaKpP2kmHLoE5LsVh4A';
-            window._gameIsActive = false;
+            var COOLDOWN_MS = 20000; // 20초 내 중복 새로고침 방지
             var _reloadTimer = null;
-            function _scheduleReload() {
+
+            window._scheduleReload = function (eventType) {
                 if (window._gameIsActive) { console.log('[Supabase RT] 게임 중, 새로고침 대기'); return; }
+
+                // DELETE는 save 직전에 항상 발생하므로 무시 (INSERT만 처리)
+                if (eventType === 'DELETE') {
+                    console.log('[Supabase RT] DELETE 이벤트 무시 (재삽입 대기)');
+                    return;
+                }
+
+                // sessionStorage 쿨다운: 마지막 새로고침 후 20초 미만이면 스킵
+                var lastReload = parseInt(sessionStorage.getItem('_rtLastReload') || '0');
+                var now = Date.now();
+                if (now - lastReload < COOLDOWN_MS) {
+                    console.log('[Supabase RT] 쿨다운 중, 새로고침 스킵 (' + Math.round((COOLDOWN_MS - (now - lastReload)) / 1000) + '초 남음)');
+                    return;
+                }
+
                 if (_reloadTimer) return;
-                console.log('[Supabase RT] 데이터 변경 감지 -> 1초 후 자동 새로고침');
-                _reloadTimer = setTimeout(function () { window.location.reload(); }, 1000);
-            }
+                console.log('[Supabase RT/SocketIO] 데이터 변경 감지 -> 5.0초 후 자동 새로고침 (DB 동기화 대기)');
+                _reloadTimer = setTimeout(function () {
+                    sessionStorage.setItem('_rtLastReload', String(Date.now()));
+                    window.location.reload();
+                }, 5000);
+            };
+
             try {
                 var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 sb.channel('roulette-rt')
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, function (p) {
-                        console.log('[Supabase RT] participants 변경:', p.eventType);
-                        _scheduleReload();
+                        console.log('[Supabase RT] participants:', p.eventType);
+                        window._scheduleReload(p.eventType);
                     })
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'commenters' }, function (p) {
-                        console.log('[Supabase RT] commenters 변경:', p.eventType);
-                        _scheduleReload();
+                        console.log('[Supabase RT] commenters:', p.eventType);
+                        window._scheduleReload(p.eventType);
                     })
                     .subscribe(function (status) {
                         console.log('[Supabase RT] 구독 상태:', status);

@@ -37,7 +37,9 @@ def set_active_url(url):
         print(f"ERROR: Failed to set active URL: {e}")
 
 def normalize_url(url):
-    """URL을 표준 형식으로 정규화합니다."""
+    """네이버 카페 URL을 표준 형식으로 변환"""
+    if not url: return url
+    url = url.strip() # 공백 및 개행 제거
     from standalone_comment_monitor.parsers import parse_post_ids_from_url
     clubid, articleid = parse_post_ids_from_url(url)
     if clubid and articleid:
@@ -116,6 +118,23 @@ _last_supabase_state = {
 _supabase_polling_started = False
 _auto_monitoring_started = False
 
+def _safe_supabase_call(func, max_retries=3):
+    """Supabase 호출 안정성 확보 (Resource temporarily unavailable 대응)"""
+    import time as _time
+    import random as _random
+    base_delay = 1.0
+    for i in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            error_str = str(e)
+            if "[Errno 11]" in error_str and i < max_retries - 1:
+                delay = base_delay * (2 ** i) + _random.uniform(0, 1)
+                print(f"DEBUG: [Supabase SafeCall] Resource busy, retrying in {delay:.2f}s... ({i+1}/{max_retries})")
+                _time.sleep(delay)
+                continue
+            raise e
+
 def _auto_start_monitoring():
     """서버 시작 시 활성화된 URL이 있으면 자동으로 백그라운드 모니터링 시작"""
     global _auto_monitoring_started
@@ -134,7 +153,9 @@ def _auto_start_monitoring():
                 with open(ACTIVE_URL_FILE, 'r', encoding='utf-8') as f:
                     active_url = f.read().strip()
             if not active_url and db.supabase:
-                res = db.supabase.table('posts').select('url').eq('is_active', True).limit(1).execute()
+                def fetch_active():
+                    return db.supabase.table('posts').select('url').eq('is_active', True).limit(1).execute()
+                res = _safe_supabase_call(fetch_active)
                 if res.data:
                     active_url = res.data[0]['url']
 
@@ -155,7 +176,7 @@ def _auto_start_monitoring():
                 return
 
             try:
-                existing_participants, all_c_list, last_comment_id, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(active_url)
+                existing_participants, last_comment_id, all_c_list, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(active_url)
             except Exception:
                 existing_participants, all_c_list, last_comment_id = {}, [], None
                 title, prizes, memo, winners, allow_duplicates = None, None, None, None, True
@@ -165,7 +186,7 @@ def _auto_start_monitoring():
                 'last_id': last_comment_id,
                 'url': active_url,
                 'seen_ids': set(),
-                'all_commenters': set(all_c_list) if all_c_list else set(),
+                'all_commenters': list(all_c_list) if all_c_list else [], # list of {name, created_at}
                 'title': title,
                 'prizes': prizes,
                 'memo': memo,
@@ -205,39 +226,56 @@ def _broadcast_current_state():
         from comment_dart import socketio
         if not db.supabase:
             return
-        post_res = db.supabase.table('posts').select('url, title, prizes, winners, updated_at').eq('is_active', True).limit(1).execute()
+            
+        def fetch_post():
+            return db.supabase.table('posts').select('url, title, prizes, memo, winners, allowed_list, updated_at').eq('is_active', True).limit(1).execute()
+        post_res = _safe_supabase_call(fetch_post)
+        
         if not post_res.data:
             return
         post = post_res.data[0]
         url = post['url']
         title = post.get('title')
         prizes = post.get('prizes')
+        memo = post.get('memo')
         winners = post.get('winners')
+        allowed_list_str = post.get('allowed_list')
         updated_at = post.get('updated_at')
 
         # 이벤트 설정 브로드캐스트
         socketio.emit('update_event_settings', {
-            'url': url, 'title': title, 'prizes': prizes, 'winners': winners,
+            'url': url, 'title': title, 'prizes': prizes, 'memo': memo, 'winners': winners, 'allowed_list': allowed_list_str
         })
 
         # 참가자 및 전체 댓글 데이터 브로드케스트
-        p_res = db.supabase.table('participants').select('author, count').eq('url', url).execute()
+        def fetch_participants():
+            return db.supabase.table('participants').select('author, count, created_at').eq('url', url).execute()
+        p_res = _safe_supabase_call(fetch_participants)
         participants = p_res.data or []
         
         # 전체 댓글 작성자 목록 가져오기
-        c_res = db.supabase.table('commenters').select('author').eq('url', url).execute()
-        all_commenters_list = [r['author'] for r in c_res.data] if c_res.data else []
+        def fetch_commenters():
+            return db.supabase.table('commenters').select('author, created_at').eq('url', url).execute()
+        c_res = _safe_supabase_call(fetch_commenters)
+        all_commenters_list = [{'name': r['author'], 'created_at': r.get('created_at')} for r in c_res.data] if c_res.data else []
         
         allowed_list = get_allowed_list(url)
         full_commenters_data = []
-        for name in sorted(all_commenters_list):
+        for name_data in all_commenters_list:
             full_commenters_data.append({
-                'name': name,
-                'is_whitelisted': name in allowed_list,
-                'tickets': allowed_list.get(name, 0)
+                'name': name_data['name'] if isinstance(name_data, dict) else name_data,
+                'is_whitelisted': (name_data['name'] if isinstance(name_data, dict) else name_data) in allowed_list,
+                'tickets': allowed_list.get(name_data['name'] if isinstance(name_data, dict) else name_data, 0),
+                'created_at': name_data.get('created_at') if isinstance(name_data, dict) else None
             })
 
-        p_list = sorted([(r['author'], int(r['count'])) for r in participants], key=lambda x: x[0])
+        p_list = []
+        for r in participants:
+            a = r['author']
+            v = r['count']
+            created_at = r.get('created_at')
+            p_list.append((a, v, created_at))
+            
         socketio.emit('update_participants', {
             'participants': p_list,
             'full_commenter_list': full_commenters_data,
@@ -262,15 +300,22 @@ def _supabase_poll_loop():
     # ── 첫 번째 루프: 현재 DB 상태를 조용히 읽어서 기준값으로 설정 ──
     try:
         if db.supabase:
-            post_res = db.supabase.table('posts').select('url, title, prizes, winners, updated_at').eq('is_active', True).limit(1).execute()
+            def fetch_initial_post():
+                return db.supabase.table('posts').select('url, title, prizes, memo, winners, allowed_list, updated_at').eq('is_active', True).limit(1).execute()
+            post_res = _safe_supabase_call(fetch_initial_post)
+            
             if post_res.data:
                 post = post_res.data[0]
                 url = post['url']
                 # 전체 작성자 수를 기준으로 변경 감지
-                c_res = db.supabase.table('commenters').select('author', count='exact').eq('url', url).execute()
+                def fetch_commenters_count():
+                    return db.supabase.table('commenters').select('author', count='exact').eq('url', url).execute()
+                c_res = _safe_supabase_call(fetch_commenters_count)
                 total_count = c_res.count if hasattr(c_res, 'count') else (len(c_res.data) if c_res.data else 0)
                 # 확정 참가자 수도 초기값으로
-                p_res = db.supabase.table('participants').select('author', count='exact').eq('url', url).execute()
+                def fetch_participants_count():
+                    return db.supabase.table('participants').select('author', count='exact').eq('url', url).execute()
+                p_res = _safe_supabase_call(fetch_participants_count)
                 confirmed_count = p_res.count if hasattr(p_res, 'count') else (len(p_res.data) if p_res.data else 0)
                 
                 _last_supabase_state.update({
@@ -293,42 +338,59 @@ def _supabase_poll_loop():
                 continue
 
             # 활성 포스트 조회
-            post_res = db.supabase.table('posts').select('url, title, prizes, winners, updated_at').eq('is_active', True).limit(1).execute()
+            def fetch_poll_post():
+                return db.supabase.table('posts').select('url, title, prizes, memo, winners, allowed_list, updated_at').eq('is_active', True).limit(1).execute()
+            post_res = _safe_supabase_call(fetch_poll_post)
+            
             if not post_res.data:
                 _time.sleep(2)
                 continue
 
             post = post_res.data[0]
             url = post['url']
+            if not url:
+                _time.sleep(2)
+                continue
+                
             updated_at = post.get('updated_at')
             title = post.get('title')
             prizes = post.get('prizes')
+            memo = post.get('memo')
             winners = post.get('winners')
+            allowed_list_str = post.get('allowed_list')
 
             # 1. 설정 변경 체크
             settings_changed = (
                 updated_at != _last_supabase_state['updated_at'] or
                 title != _last_supabase_state['title'] or
                 prizes != _last_supabase_state['prizes'] or
+                memo != _last_supabase_state.get('memo') or
+                winners != _last_supabase_state.get('winners') or
+                allowed_list_str != _last_supabase_state.get('allowed_list') or
                 url != _last_supabase_state['active_url']
             )
 
             if settings_changed:
                 print(f"DEBUG: [Realtime] Settings changed! Broadcasting...")
                 socketio.emit('update_event_settings', {
-                    'url': url, 'title': title, 'prizes': prizes, 'winners': winners,
+                    'url': url, 'title': title, 'prizes': prizes, 'memo': memo, 'winners': winners, 'allowed_list': allowed_list_str
                 })
                 _last_supabase_state.update({
-                    'title': title, 'prizes': prizes, 'active_url': url, 'updated_at': updated_at
+                    'title': title, 'prizes': prizes, 'memo': memo, 'winners': winners, 'allowed_list': allowed_list_str,
+                    'active_url': url, 'updated_at': updated_at
                 })
 
             # 2. commenters 수 변경 체크
-            c_res = db.supabase.table('commenters').select('author').eq('url', url).execute()
-            all_commenters_list = [r['author'] for r in c_res.data] if c_res.data else []
+            def fetch_poll_commenters():
+                return db.supabase.table('commenters').select('author, created_at').eq('url', url).execute()
+            c_res = _safe_supabase_call(fetch_poll_commenters)
+            all_commenters_list = [{'name': r['author'], 'created_at': r.get('created_at')} for r in c_res.data] if c_res.data else []
             current_total_count = len(all_commenters_list)
 
             # 3. 확정 참가자(participants) 수 변경 체크 - 이벤트 명단 변동 시에도 감지
-            p_res = db.supabase.table('participants').select('author, count').eq('url', url).execute()
+            def fetch_poll_participants():
+                return db.supabase.table('participants').select('author, count, created_at').eq('url', url).execute()
+            p_res = _safe_supabase_call(fetch_poll_participants)
             participants = p_res.data or []
             current_confirmed_count = len(participants)
 
@@ -345,14 +407,21 @@ def _supabase_poll_loop():
                 
                 allowed_list = get_allowed_list(url)
                 full_commenters_data = []
-                for name in sorted(all_commenters_list):
+                for item in all_commenters_list:
+                    name = item['name'] if isinstance(item, dict) else item
                     full_commenters_data.append({
                         'name': name,
                         'is_whitelisted': name in allowed_list,
-                        'tickets': allowed_list.get(name, 0)
+                        'tickets': allowed_list.get(name, 0),
+                        'created_at': item.get('created_at') if isinstance(item, dict) else None
                     })
 
-                p_list = sorted([(r['author'], int(r['count'])) for r in participants], key=lambda x: x[0])
+                p_list = []
+                for r in participants:
+                    a = r['author']
+                    v = r['count']
+                    created_at = r.get('created_at')
+                    p_list.append((a, v, created_at))
                 
                 socketio.emit('update_participants', {
                     'participants': p_list,
@@ -364,8 +433,15 @@ def _supabase_poll_loop():
                 _last_supabase_state['confirmed_count'] = current_confirmed_count
 
         except Exception as e:
-            print(f"DEBUG: [Realtime Poll Error] {e}")
-        _time.sleep(2)
+            error_str = str(e)
+            if "[Errno 11]" in error_str:
+                print(f"DEBUG: [Realtime Poll] Resource busy ([Errno 11]). Slowing down... {e}")
+                _time.sleep(5) # 오류 발생 시 더 길게 대기
+            else:
+                print(f"DEBUG: [Realtime Poll Error] {e}")
+                _time.sleep(2)
+        else:
+            _time.sleep(2) # 정상 작동 시 기본 2초 대기
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -378,9 +454,10 @@ def sync_participants_with_whitelist(url, existing_participants, all_commenters)
     allowed_list = get_allowed_list(url)
     updated = False
     
-    for name in all_commenters:
+    for item in all_commenters:
+        name = item['name'] if isinstance(item, dict) else item
         if name in allowed_list and name not in existing_participants:
-            existing_participants[name] = allowed_list[name]
+            existing_participants[name] = (allowed_list[name], item.get('created_at') if isinstance(item, dict) else None)
             updated = True
             print(f"DEBUG: [Sync] Promoted '{name}' to participant (found in whitelist)")
             
@@ -417,12 +494,14 @@ def update_event_settings():
         # 덮어쓰기 방지를 위해 기존 상태에서 last_id와 winners를 가져옴
         current_last_id = ''
         current_winners = None
+        current_allowed_list = None
         if url in event_states:
             current_last_id = event_states[url].get('last_id', '')
             current_winners = event_states[url].get('winners')
+            current_allowed_list = event_states[url].get('allowed_list_str')
 
         db.save_data(url, None, current_last_id, title=title, prizes=prizes, memo=memo, 
-                     winners=current_winners, allow_duplicates=allow_duplicates)
+                     winners=current_winners, allow_duplicates=allow_duplicates, allowed_list=current_allowed_list)
         
         # [추가] 설정 저장 시 해당 이벤트를 활성화 (룰렛 화면에 즉시 반영도록)
         set_active_url(url)
@@ -445,7 +524,7 @@ def update_event_settings():
                 'participants': {},
                 'last_id': None,
                 'seen_ids': set(),
-                'all_commenters': set()
+                'all_commenters': []
             }
         
         # 소켓 브로드캐스트
@@ -484,7 +563,7 @@ def fetch_comments_route():
                 # 완전 새로 시작하는 경우 (새 이벤트 버튼 또는 URL 변경)
                 last_comment_id = None
                 existing_participants = {}
-                all_commenters = set()
+                all_commenters = []
                 title, prizes, memo, winners, allow_duplicates = None, None, None, None, True
                 db.clear_data(url) # DB 초기화 (기본 정책 유지 시)
                 
@@ -495,8 +574,8 @@ def fetch_comments_route():
                     with open(LAST_COMMENT_FILE, 'w', encoding='utf-8') as f: f.write('')
             else:
                 # 점진적 수집이지만 메모리에 없을 때 (페이지 새로고침 등)
-                existing_participants, all_c_list, last_comment_id, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(url)
-                all_commenters = set(all_c_list) if all_c_list else set()
+                existing_participants, last_comment_id, all_c_list, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(url)
+                all_commenters = list(all_c_list) if all_c_list else []
             
             event_states[url] = {
                 'participants': existing_participants,
@@ -508,7 +587,8 @@ def fetch_comments_route():
                 'prizes': prizes,
                 'memo': memo,
                 'winners': winners,
-                'allow_duplicates': allow_duplicates
+                'allow_duplicates': allow_duplicates,
+                'allowed_list_str': _ # allowed_list_str is the last arg of get_data
             }
 
         current_state = event_states[url]
@@ -528,7 +608,7 @@ def fetch_comments_route():
         # 2. 새로운 댓글 분석 및 화이트리스트 필터링
         allowed_list = get_allowed_list(url)
         new_participants_found = 0
-        all_commenters = current_state.setdefault('all_commenters', set())
+        all_commenters = current_state.setdefault('all_commenters', [])
         
         if comments:
             seen_ids = current_state.setdefault('seen_ids', set())
@@ -541,13 +621,15 @@ def fetch_comments_route():
                 if not writer or writer == 'None': continue
                 
                 # 모든 작성자 추적
-                all_commenters.add(writer)
+                all_names = [item['name'] if isinstance(item, dict) else item for item in all_commenters]
+                if writer not in all_names:
+                    all_commenters.append({'name': writer, 'created_at': comment.get('created_at')})
                 
                 # 화이트리스트 체크 (참여자 명단)
                 if writer in allowed_list:
                     # 명단에 있는 사람만 참여자로 인정하되, 배정된 티켓수를 할당
                     if writer not in existing_participants:
-                        existing_participants[writer] = allowed_list[writer]
+                        existing_participants[writer] = (allowed_list[writer], comment.get('created_at'))
                         new_participants_found += 1
         
         # 전체 댓글 수 계산 (응답용)
@@ -590,24 +672,27 @@ def fetch_comments_route():
 
             try:
                 from comment_dart import socketio
-                total_comments = sum(existing_participants.values()) # 여기서 정의
+                total_comments = sum(v[0] if isinstance(v, (tuple, list)) else v for v in existing_participants.values())
                 
-                # 룰렛 페이지가 기대하는 형식 [(이름, 횟수), ...]
-                p_list_for_roulette = [(name, int(count)) for name, count in existing_participants.items()]
+                # 룰렛 페이지가 기대하는 형식 [(이름, 횟수, 시간), ...]
+                p_list_for_roulette = []
+                for name, v in existing_participants.items():
+                    count = v[0] if isinstance(v, (tuple, list)) else v
+                    created_at = v[1] if isinstance(v, (tuple, list)) else None
+                    p_list_for_roulette.append((name, count, created_at))
                 # 가나다순 정렬
-                p_list_for_roulette.sort(key=lambda x: x[0])
+                # p_list_for_roulette.sort(key=lambda x: x[0]) # Sorting will be handled by the frontend
                 
                 # 모니터 페이지를 위한 전체 명단 (상태 포함)
                 full_commenters_data = []
-                # 정렬해서 보냄
-                sorted_all = sorted(list(all_commenters))
-                for name in sorted_all:
-                    is_whitelisted = name in allowed_list
-                    tickets = allowed_list.get(name, 0)
+                for item in all_commenters:
+                    name = item['name'] if isinstance(item, dict) else item
+                    created_at = item.get('created_at') if isinstance(item, dict) else None
                     full_commenters_data.append({
                         'name': name,
-                        'is_whitelisted': is_whitelisted,
-                        'tickets': tickets
+                        'is_whitelisted': name in allowed_list,
+                        'tickets': allowed_list.get(name, 0),
+                        'created_at': created_at
                     })
 
                 socketio.emit('update_participants', {
@@ -715,11 +800,12 @@ def start_background_monitoring(url):
                             seen_ids.add(cid)
                             writer = c.get('author_nickname') or c.get('author_id')
                             if writer and writer != 'None':
-                                all_commenters = state.setdefault('all_commenters', set())
-                                all_commenters.add(writer)
+                                all_commenters = state.setdefault('all_commenters', [])
+                                if writer not in [item['name'] if isinstance(item, dict) else item for item in all_commenters]:
+                                    all_commenters.append({'name': writer, 'created_at': c.get('created_at')})
                                 if writer in allowed_list:
                                     if writer not in state['participants']:
-                                        state['participants'][writer] = allowed_list[writer]
+                                        state['participants'][writer] = (allowed_list[writer], c.get('created_at'))
                                         added_count += 1
                     
                     # 마지막 ID 업데이트
@@ -733,20 +819,27 @@ def start_background_monitoring(url):
                     db.save_data(url, state['participants'], state['last_id'], list(state.get('all_commenters', [])),
                                  title=state.get('title'), prizes=state.get('prizes'),
                                  memo=state.get('memo'), winners=state.get('winners'),
-                                 allow_duplicates=state.get('allow_duplicates'))
+                                 allow_duplicates=state.get('allow_duplicates'),
+                                 allowed_list=state.get('allowed_list_str'))
 
                     # 무조건 업데이트 전송 (UI 갱신을 위해)
-                    p_list_for_roulette = [(name, int(count)) for name, count in state['participants'].items()]
-                    p_list_for_roulette.sort(key=lambda x: x[0])
+                    p_list_for_roulette = []
+                    for name, v in state['participants'].items():
+                        count = v[0] if isinstance(v, (tuple, list)) else v
+                        created_at = v[1] if isinstance(v, (tuple, list)) else None
+                        p_list_for_roulette.append((name, count, created_at))
+                    # p_list_for_roulette.sort(key=lambda x: x[0])
 
                     full_commenters_data = []
-                    all_commenters_list = sorted(list(state.get('all_commenters', set())))
+                    all_commenters_list = state.get('all_commenters', [])
                     
-                    for name in all_commenters_list:
+                    for item in all_commenters_list:
+                        name = item['name'] if isinstance(item, dict) else item
                         full_commenters_data.append({
                             'name': name,
                             'is_whitelisted': name in allowed_list,
-                            'tickets': allowed_list.get(name, 0)
+                            'tickets': allowed_list.get(name, 0),
+                            'created_at': item.get('created_at') if isinstance(item, dict) else None
                         })
 
                     socketio.emit('update_participants', {
@@ -771,7 +864,7 @@ def start_background_monitoring(url):
             except Exception as le:
                 print(f"DEBUG: [Background Loop Error] {le}")
                 
-            socketio.sleep(0.2) # 0.2초 간격으로 초고속 모니터링
+            socketio.sleep(5.0) # 5초 간격으로 안정적인 모니터링
 
     socketio.start_background_task(monitor_loop)
 
@@ -813,7 +906,7 @@ def load_comments():
     try:
         url = normalize_url(url)
         print(f"DEBUG: [Load Request] URL: {url}")
-        participants_dict, all_commenter_list, last_id, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(url)
+        participants_dict, last_id, all_commenter_list, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(url)
         
         if not participants_dict and not all_commenter_list:
             return jsonify({'message': '저장된 데이터가 없습니다.', 'participants': [], 'url': url})

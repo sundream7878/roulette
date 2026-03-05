@@ -821,10 +821,19 @@
             </div>
 
             <div class="participants-list">
-                <div class="list-header" style="display: flex; justify-content: space-between; align-items: center;">
-                    <span>참여자 목록 및 활동</span>
+                <div class="list-header" style="display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span>참여자 목록 및 활동</span>
+                        <div class="sort-controls"
+                            style="display: flex; background: #f0f0f0; padding: 3px; border-radius: 6px; gap: 2px;">
+                            <button onclick="setSortMode('alphabetical')" id="sort-abc" class="sort-btn active-sort"
+                                style="border: none; padding: 2px 8px; border-radius: 4px; font-size: 10px; cursor: pointer;">가나다순</button>
+                            <button onclick="setSortMode('newest')" id="sort-new" class="sort-btn"
+                                style="border: none; background: transparent; padding: 2px 8px; border-radius: 4px; font-size: 10px; cursor: pointer; color: #666;">최신순</button>
+                        </div>
+                    </div>
                     <div class="view-toggle"
-                        style="background: #f0f0f0; padding: 4px; border-radius: 20px; display: flex; gap: 4px;">
+                        style="background: #f0f0f0; padding: 4px; border-radius: 20px; display: flex; gap: 4px; margin-left: auto;">
                         <button onclick="setViewMode('confirmed')" id="mode-confirmed" class="active-mode"
                             style="border: none; padding: 4px 12px; border-radius: 16px; font-size: 11px; cursor: pointer;">확정</button>
                         <button onclick="setViewMode('all')" id="mode-all"
@@ -879,7 +888,8 @@
     </div>
 
     <style>
-        .active-mode {
+        .active-mode,
+        .active-sort {
             background: #fff !important;
             color: var(--primary-color) !important;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -916,13 +926,34 @@
         .participant-item:last-child {
             border-bottom: none;
         }
+
+        .participant-meta {
+            font-size: 11px;
+            color: #999;
+            margin-left: 8px;
+        }
     </style>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script>
         const socket = io();
+
+        function formatDate(isoString) {
+            if (!isoString) return '';
+            try {
+                const d = new Date(isoString);
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const hours = String(d.getHours()).padStart(2, '0');
+                const mins = String(d.getMinutes()).padStart(2, '0');
+                return `${month}-${day} ${hours}:${mins}`;
+            } catch (e) {
+                return '';
+            }
+        }
         let isMonitoring = false;
         let viewMode = 'confirmed'; // 'confirmed' or 'all'
+        let sortMode = 'alphabetical'; // 'alphabetical' or 'newest'
         let currentParticipants = [];
         let currentFullFeed = [];
 
@@ -960,6 +991,19 @@
             document.getElementById('history-modal').style.display = 'none';
             loadData();
             loadAllowedList(); // URL이 변경되었으므로 명단 다시 로드
+        }
+
+        function setSortMode(mode) {
+            sortMode = mode;
+            document.getElementById('sort-abc').className = mode === 'alphabetical' ? 'sort-btn active-sort' : 'sort-btn';
+            document.getElementById('sort-abc').style.background = mode === 'alphabetical' ? '#fff' : 'transparent';
+            document.getElementById('sort-abc').style.color = mode === 'alphabetical' ? 'var(--primary-color)' : '#666';
+
+            document.getElementById('sort-new').className = mode === 'newest' ? 'sort-btn active-sort' : 'sort-btn';
+            document.getElementById('sort-new').style.background = mode === 'newest' ? '#fff' : 'transparent';
+            document.getElementById('sort-new').style.color = mode === 'newest' ? 'var(--primary-color)' : '#666';
+
+            updateListUI();
         }
 
         function setViewMode(mode) {
@@ -1088,12 +1132,23 @@
                     content.innerHTML = '<div style="justify-content: center; color: #999; padding: 20px;">확정된 참여자가 없습니다. <br><small>(사전 명단에 포함된 작성자만 표시됩니다)</small></div>';
                     return;
                 }
-                currentParticipants.sort((a, b) => a[0].localeCompare(b[0]));
+
+                let listToSort = [...currentParticipants];
+                if (sortMode === 'alphabetical') {
+                    listToSort.sort((a, b) => a[0].localeCompare(b[0]));
+                } else {
+                    // 최신순: 어레이 순서가 서버 수집 순서(오래된 순)라면 뒤집기
+                    listToSort.reverse();
+                }
+
                 let html = '';
-                currentParticipants.forEach(p => {
+                listToSort.forEach(p => {
                     html += `
                     <div class="participant-item">
-                        <span class="participant-name">${p[0]} <span class="badge badge-confirmed">확정</span></span>
+                        <span class="participant-name">
+                            ${p[0]} ${formatDate(p[2]) ? `<span class="participant-meta">${formatDate(p[2])}</span>` : ''}
+                            <span class="badge badge-confirmed">확정</span>
+                        </span>
                         <span class="participant-status whitelisted">티켓: ${p[1]}장</span>
                     </div>`;
                 });
@@ -1103,13 +1158,25 @@
                     content.innerHTML = '<div style="justify-content: center; color: #999; padding: 20px;">수집된 활동이 없습니다.</div>';
                     return;
                 }
+
+                let listToSort = [...currentFullFeed];
+                if (sortMode === 'alphabetical') {
+                    listToSort.sort((a, b) => a.name.localeCompare(b.name));
+                } else {
+                    // 최신순
+                    listToSort.reverse();
+                }
+
                 let html = '';
-                currentFullFeed.forEach(f => {
+                listToSort.forEach(f => {
                     const statusBadge = f.is_whitelisted ? '<span class="badge badge-confirmed">확정</span>' : '<span class="badge badge-waiting">대기(명단없음)</span>';
                     html += `
                     <div class="participant-item">
-                        <span class="participant-name">${f.name} ${statusBadge}</span>
-                        <span style="font-size: 11px; color: #999;">${f.is_whitelisted ? '티켓: ' + f.tickets + '장' : '수집됨'}</span>
+                        <span class="participant-name">
+                            ${f.name} ${formatDate(f.created_at) ? `<span class="participant-meta">${formatDate(f.created_at)}</span>` : ''}
+                            ${statusBadge}
+                        </span>
+                        <span class="participant-status">${f.is_whitelisted ? `티켓: ${f.tickets}장` : '활동중'}</span>
                     </div>`;
                 });
                 content.innerHTML = html;
@@ -1203,11 +1270,8 @@
             const newParticipants = data.participants || [];
             const newFullFeed = data.full_commenter_list || [];
 
-            // UI 상태 반영
             currentParticipants = newParticipants;
-            if (newFullFeed.length > 0) {
-                currentFullFeed = newFullFeed;
-            }
+            if (newFullFeed.length > 0) currentFullFeed = newFullFeed;
 
             updateStats(newTotalCount, currentParticipants.length);
             updateListUI();
@@ -1215,10 +1279,53 @@
             if (isMonitoring) {
                 showStatus('실시간 업데이트됨 (' + new Date().toLocaleTimeString() + ')', 'success');
             }
+
+            // 데이터가 변했을 때 자동 새로고침 시도 (Supabase RT와 동일한 로직 적용)
+            if (window._scheduleReload) window._scheduleReload('SocketIO_Participants');
+        });
+
+        socket.on('update_event_settings', (data) => {
+            console.log('이벤트 설정 변경 감지:', data);
+            if (data.title) document.getElementById('event-title').value = data.title;
+            if (data.prizes !== undefined) document.getElementById('event-prizes').value = data.prizes;
+            if (data.memo !== undefined) document.getElementById('event-memo').value = data.memo;
+            if (data.allow_duplicates !== undefined) document.getElementById('allow-duplicates').checked = data.allow_duplicates;
+
+            showStatus('서버에서 설정이 업데이트되었습니다.', 'info');
+
+            // 다른 세션에서 변경한 경우 reload 예약 (Jinja2 데이터 동기화용)
+            if (window._scheduleReload) window._scheduleReload('SocketIO_Settings');
         });
 
         window.onload = () => {
             loadAllowedList();
+
+            window._gameIsActive = false;
+            window._pendingReload = false;
+
+            // 입력창 포커스 시 새로고침 방지 로직 추가
+            const settingsInputs = ['event-title', 'event-prizes', 'event-memo', 'whitelist-input', 'url'];
+            settingsInputs.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.addEventListener('focus', () => {
+                        window._gameIsActive = true;
+                        console.log('입력 중: 자동 새로고침 일시 중단');
+                        showStatus('설정 수정 중 - 자동 새로고침이 일시 중지되었습니다.', 'info');
+                    });
+                    el.addEventListener('blur', () => {
+                        window._gameIsActive = false;
+                        showStatus('수정 완료 - 실시간 모니터링이 활성화되었습니다.', 'success');
+
+                        // 대기 중인 새로고침이 있으면 즉시 실행
+                        if (window._pendingReload) {
+                            console.log('대기 중인 새로고침 실행...');
+                            window._scheduleReload('Pending_Reload');
+                        }
+                    });
+                }
+            });
+
             const urlField = document.getElementById('url');
             if (urlField && urlField.value) {
                 // URL이 서버에서 자동으로 채워졌으면 바로 데이터 로드 및 모니터링 시작
@@ -1234,40 +1341,52 @@
         (function () {
             var SUPABASE_URL = 'https://kbnszmnmvppfbdpdefqw.supabase.co';
             var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtibnN6bW5tdnBwZmJkcGRlZnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNzU2MDgsImV4cCI6MjA4NzY1MTYwOH0.nFTpkNsG5Wk3Q10khoAYNyA0UaKpP2kmHLoE5LsVh4A';
-            var COOLDOWN_MS = 20000; // 20초 내 중복 새로고침 방지
+            var COOLDOWN_MS = 5000; // 5초 내 중복 새로고침 방지 (관리자용이므로 짧게 조정)
             var _reloadTimer = null;
 
-            function _scheduleReload(eventType) {
-                // DELETE는 save 직전에 항상 발생하므로 무시 (INSERT만 처리)
-                if (eventType === 'DELETE') {
-                    console.log('[Supabase RT] DELETE 이벤트 무시 (재삽입 대기)');
+            window._scheduleReload = function (eventType) {
+                if (window._gameIsActive) {
+                    console.log('[Realtime] 수정 중 - 새로고침을 예약합니다 (' + eventType + ')');
+                    window._pendingReload = true;
                     return;
                 }
-                // sessionStorage 쿨다운: 마지막 새로고침 후 20초 미만이면 스킵
+
+                // DELETE는 save 직전에 항상 발생하므로 무시
+                if (eventType === 'DELETE') {
+                    console.log('[Supabase RT] DELETE 이벤트 무시');
+                    return;
+                }
+
                 var lastReload = parseInt(sessionStorage.getItem('_rtLastReload') || '0');
                 var now = Date.now();
                 if (now - lastReload < COOLDOWN_MS) {
                     console.log('[Supabase RT] 쿨다운 중, 새로고침 스킵 (' + Math.round((COOLDOWN_MS - (now - lastReload)) / 1000) + '초 남음)');
                     return;
                 }
+
                 if (_reloadTimer) return;
-                console.log('[Supabase RT] 데이터 변경 (' + eventType + ') -> 2초 후 자동 새로고침');
+                console.log('[Realtime] 데이터 변경 감지 (' + eventType + ') -> 2초 후 자동 새로고침');
                 _reloadTimer = setTimeout(function () {
                     sessionStorage.setItem('_rtLastReload', String(Date.now()));
+                    window._pendingReload = false;
                     window.location.reload();
                 }, 2000);
-            }
+            };
 
             try {
                 var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 sb.channel('monitor-rt')
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, function (p) {
                         console.log('[Supabase RT] participants:', p.eventType);
-                        _scheduleReload(p.eventType);
+                        window._scheduleReload('Supabase_Participants');
                     })
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'commenters' }, function (p) {
                         console.log('[Supabase RT] commenters:', p.eventType);
-                        _scheduleReload(p.eventType);
+                        window._scheduleReload('Supabase_Commenters');
+                    })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, function (p) {
+                        console.log('[Supabase RT] posts:', p.eventType);
+                        window._scheduleReload('Supabase_Posts');
                     })
                     .subscribe(function (status) {
                         console.log('[Supabase RT] 구독 상태:', status);

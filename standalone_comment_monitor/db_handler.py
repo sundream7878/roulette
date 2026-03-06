@@ -66,6 +66,16 @@ class CommentDatabase:
             print(f"DEBUG: [Supabase Error] clear_data FAIL: {e}")
 
     @retry_supabase
+    def delete_participant(self, url: str, author: str):
+        """특정 URL의 특정 참가자를 DB에서 삭제 (중복 당첨 비허용 시 사용)"""
+        if not self.supabase: return
+        try:
+            self.supabase.table("participants").delete().eq("url", url).eq("author", author).execute()
+            print(f"DEBUG: [Supabase] Deleted participant {author} for URL: {url}")
+        except Exception as e:
+            print(f"DEBUG: [Supabase Error] delete_participant FAIL: {e}")
+
+    @retry_supabase
     def save_data(self, url: str, participants_dict, last_comment_id,
                   all_commenters=None, title=None, prizes=None, memo=None, winners=None, allow_duplicates=None, allowed_list=None):
         """수집된 데이터를 Supabase에 직접 저장 (동기형)"""
@@ -99,15 +109,15 @@ class CommentDatabase:
                 p_batch.append(item)
             
             if p_batch:
-                # 50개씩 청크 분할하여 upsert
-                for i in range(0, len(p_batch), 50):
-                    batch = p_batch[i:i+50]
+                # 500개씩 청크 분할하여 upsert (속도 향상)
+                for i in range(0, len(p_batch), 500):
+                    batch = p_batch[i:i+500]
                     try:
                         self.supabase.table("participants").upsert(batch, on_conflict="url,author").execute()
                     except Exception as e:
                         # created_at 컬럼 유무 또는 on_conflict 지원 여부에 따른 폴백
                         if "on_conflict" in str(e).lower() or "unique" in str(e).lower():
-                            # 명시적 delete 후 insert (단, 매번이 아니라 에러 시에만)
+                            # 에러 시에만 폴백 (성능을 위해 청크 단위가 아닌 전체 삭제 후 재삽입 고려할 수 있으나 upsert 선호)
                             self.supabase.table("participants").delete().eq("url", url).execute()
                             self.supabase.table("participants").insert(p_batch).execute()
                             break
@@ -131,9 +141,9 @@ class CommentDatabase:
                 c_batch.append(c_item)
             
             if c_batch:
-                # 대량 삽입 시 100개씩 청크 분할하여 upsert
-                for i in range(0, len(c_batch), 100):
-                    batch = c_batch[i:i+100]
+                # 1000개씩 청크 분할하여 upsert (대량 데이터 최적화)
+                for i in range(0, len(c_batch), 1000):
+                    batch = c_batch[i:i+1000]
                     try:
                         self.supabase.table("commenters").upsert(batch, on_conflict="url,author").execute()
                     except Exception as e:

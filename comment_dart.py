@@ -148,7 +148,6 @@ def guest_view():
     memo = None
     winners = None
     active_url = None
-    p_list = load_participants()
     confirmed_names = [unicodedata.normalize('NFC', p[0].strip()) for p in p_list] if p_list else []
     
     if HAS_MONITOR:
@@ -160,14 +159,32 @@ def guest_view():
 
     # 사전 참여 명단 (화이트리스트) 및 가나다순 정렬 (확정자 우선)
     if HAS_MONITOR:
-        raw_allowed = [unicodedata.normalize('NFC', n.strip()) for n in get_allowed_list().keys()]
-        allowed_names = sorted(raw_allowed, key=lambda x: (x not in confirmed_names, x))
+        # 모든 확정자 (현재 참여자 + 기당첨자)
+        won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
+        p_names = [p[0] for p in p_list]
+        all_confirmed_names = set(p_names) | set(won_names)
+
+        allowed_dict = get_allowed_list()
+        allowed_info = []
+        for name, tickets in allowed_dict.items():
+            name_norm = unicodedata.normalize('NFC', name.strip())
+            is_confirmed = name_norm in all_confirmed_names
+            allowed_info.append({
+                'name': name_norm,
+                'tickets': tickets,
+                'is_confirmed': is_confirmed
+            })
+        # 정렬: 확정자 우선, 그 다음 가나다순
+        allowed_info.sort(key=lambda x: (not x['is_confirmed'], x['name']))
     else:
-        allowed_names = []
+        allowed_info = []
+
+    # [추가] 당첨자 포함 전체 확정된 고유 명단 (체크 표시 및 카운트용)
+    all_confirmed_set = set(confirmed_names) | set(won_names) if HAS_MONITOR else set(confirmed_names)
 
     return render_template('index.html',
                            participants=p_list,
-                           confirmed_names=confirmed_names,
+                           confirmed_names=list(all_confirmed_set), # ✅ 표시용
                            colors=p_colors,
                            user=None,
                            is_guest=True,
@@ -176,7 +193,7 @@ def guest_view():
                            memo=memo,
                            winners=winners,
                            current_url=active_url,
-                           allowed_names=allowed_names)
+                           allowed_info=allowed_info)
     
 # ----- 참가자 로딩 함수 (가나다순 정렬 추가) -----
 def load_participants(filename="participants.txt"):
@@ -287,15 +304,33 @@ def index():
 
     # 사전 참여 명단 (화이트리스트) 및 가나다순 정렬 (확정자 우선)
     if HAS_MONITOR:
-        raw_allowed = [unicodedata.normalize('NFC', n.strip()) for n in get_allowed_list().keys()]
-        allowed_names = sorted(raw_allowed, key=lambda x: (x not in confirmed_names, x))
+        # 모든 확정자 (현재 참여자 + 기당첨자)
+        won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
+        p_names = [p[0] for p in p_list]
+        all_confirmed_names = set(p_names) | set(won_names)
+
+        allowed_dict = get_allowed_list()
+        allowed_info = []
+        for name, tickets in allowed_dict.items():
+            name_norm = unicodedata.normalize('NFC', name.strip())
+            is_confirmed = name_norm in all_confirmed_names
+            allowed_info.append({
+                'name': name_norm,
+                'tickets': tickets,
+                'is_confirmed': is_confirmed
+            })
+        # 정렬: 확정자 우선, 그 다음 가나다순
+        allowed_info.sort(key=lambda x: (not x['is_confirmed'], x['name']))
     else:
-        allowed_names = []
+        allowed_info = []
+
+    # [추가] 당첨자 포함 전체 확정된 고유 명단 (체크 표시 및 카운트용)
+    all_confirmed_set = set(confirmed_names) | set(won_names) if HAS_MONITOR else set(confirmed_names)
 
     if current_user.is_authenticated:
         return render_template('index.html',
                              participants=p_list,
-                             confirmed_names=confirmed_names,
+                             confirmed_names=list(all_confirmed_set), # ✅ 표시용
                              colors=p_colors,
                              user=current_user,
                              title=title,
@@ -303,7 +338,7 @@ def index():
                              memo=memo,
                              winners=winners,
                              current_url=active_url,
-                             allowed_names=allowed_names)
+                             allowed_info=allowed_info)
     else:
         return render_template('welcome.html')
 
@@ -400,6 +435,11 @@ def handle_start_rotation(data):
     p_data = load_participants()
     p_list = p_data if p_data else []
     
+    if not p_list:
+        print("DEBUG: No participants available for rotation.")
+        socketio.emit('error', {'message': '참여자가 없습니다. 댓글을 확인해주세요.'}, namespace='/')
+        return
+
     # 정확한 당첨자 계산 (화살표가 가리키는 섹터의 참가자)
     winner = calculate_winner_at_angle(relative_angle, p_list)
     game['final_winner'] = winner
@@ -475,7 +515,7 @@ def handle_confirm_winner(data=None):
             print(f"DEBUG: Found latest game for {user_id}, winner: {winner}")
     
     # 당첨자를 찾았으면 발표
-    if winner:
+    if winner and winner != "N/A":
         # [중요] 중복 처리 방지 (여러 탭이 열려 있어도 한 번만 처리)
         if game_obj and game_obj.get('confirmed'):
             print(f"DEBUG: 이미 확정 처리된 당첨자입니다: {winner}")
@@ -519,6 +559,8 @@ def handle_confirm_winner(data=None):
                     if winner in participants:
                         del participants[winner]
                         print(f"DEBUG: Removed winner '{winner}' from participants (No Duplicates Policy)")
+                        # [중요] DB에서도 즉시 삭제하여 실시간 동기화 시 다시 나타나지 않게 함
+                        db.delete_participant(active_url, winner)
                 
                 # 3. 저장 (기존 데이터 보존하며 winners 및 participants 업데이트)
                 db.save_data(active_url, participants, last_id if last_id else '', 
@@ -570,6 +612,7 @@ def handle_confirm_winner(data=None):
                     
                     socketio.emit('update_participants', {
                         'participants': p_list_for_roulette,
+                        'confirmed_all': list(set(participants.keys()) | set(current_winners)), # 실시간 확정자 명단 (당첨자 포함)
                         'full_commenter_list': full_commenter_data,
                         'total_comments': len(all_commenters),
                         'event_id': str(int(time.time()))
@@ -619,11 +662,16 @@ def handle_request_game_status():
                 p_list_for_roulette = [(name, int(count)) for name, count in participants_dict.items()]
                 p_list_for_roulette.sort(key=lambda x: x[0])
                 
+                # 모든 확정자 (현재 참여자 + 기당첨자)
+                won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
+                confirmed_all = list(set(participants_dict.keys()) | set(won_names))
+                
                 active_event_data = {
                     'title': title,
                     'prizes': prizes,
                     'winners': winners,
                     'participants': p_list_for_roulette,
+                    'confirmed_all': confirmed_all,
                     'current_url': active_url
                 }
         except Exception as e:

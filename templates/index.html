@@ -455,6 +455,13 @@
             color: #1a5c20;
         }
 
+        .participant-separator {
+            border-top: 1px solid #ccc;
+            margin: 8px 0;
+            width: 90%;
+            margin-left: 5%;
+        }
+
         /* 사은품 추첨 중 강조 효과 */
         .prize-item.drawing-active {
             position: relative;
@@ -573,38 +580,30 @@
                 <strong>📋 전체 명단</strong>
                 <span id="confirmed-count-header" style="font-size:0.85em; color:#888;">
                     (확정: <span id="conf-num">{{ confirmed_names | length if confirmed_names else 0 }}</span>/{{
-                    allowed_names | length if allowed_names else 0 }}명)
+                    allowed_info | length if allowed_info else 0 }}명)
                 </span>
             </div>
             <div style="font-size: 0.75em; color: #666; margin-bottom: 8px; padding-left: 5px;">
                 ( 💡 이름 앞에 ✅ 표시가 있는 분들이 확정된 명단입니다. )
             </div>
-            {% if allowed_names %}
-            {% for name in allowed_names %}
-            {# 확정 여부 확인 (namespace 및 confirmed_names 사용하여 견고하게 처리) #}
-            {% set ns = namespace(is_confirmed=false) %}
-            {% set clean_name = name.strip() %}
-
-            {% if confirmed_names is defined and confirmed_names %}
-            {% if clean_name in confirmed_names %}
-            {% set ns.is_confirmed = true %}
+            {% if allowed_info %}
+            {% set ns_sep = namespace(separator_shown=false) %}
+            {% for info in allowed_info %}
+            {# 확정자와 미확정자 사이에 구분선 추가 #}
+            {% if not info.is_confirmed and not ns_sep.separator_shown %}
+            {% if loop.index0 > 0 %}
+            <div class="participant-separator"></div>
             {% endif %}
-            {% else %}
-            {# fallback: participants 리스트 직접 검색 #}
-            {% for p in participants %}
-            {% if p[0].strip() == clean_name %}
-            {% set ns.is_confirmed = true %}
-            {% endif %}
-            {% endfor %}
+            {% set ns_sep.separator_shown = true %}
             {% endif %}
 
-            <div class="all-participant-item {% if ns.is_confirmed %}is-confirmed{% endif %}">
-                {% if ns.is_confirmed %}
+            <div class="all-participant-item {% if info.is_confirmed %}is-confirmed{% endif %}">
+                {% if info.is_confirmed %}
                 <span class="confirmed-badge">✅</span>
                 {% else %}
                 <span class="confirmed-badge" style="visibility:hidden;">✅</span>
                 {% endif %}
-                <span>{{ name }}</span>
+                <span class="p-name">{{ info.name }}</span> <span class="p-tickets">({{ info.tickets }}장)</span>
             </div>
             {% endfor %}
             {% else %}
@@ -695,12 +694,12 @@
                 chart = new Chart(ctx, {
                     type: 'doughnut',
                     data: {
-                        labels: [{% for p in participants %}'{{ p[0] }}',{% endfor %}],
+                        labels: [{% for p in participants %}'{{ p[0]|e }}',{% endfor %}],
             datasets: [{
                 data: [{% for p in participants %}{{ p[1] }}, {% endfor %}],
         backgroundColor: generateColors({{ participants| length }})
-                    }]
-                },
+                        }]
+                    },
         options: {
             rotation: -Math.PI / 2,
                 animation: false,
@@ -726,14 +725,14 @@
                 }
             },
             cutout: '40%',
-                radius: '100%'
+                radius: '100% '
         }
-            });
+                });
         console.log("차트 초기화 완료");
-        } catch (e) {
+            } catch (e) {
             console.error("차트 초기화 오류:", e);
         }
-    }
+        }
 
         function generateColors(count) {
             const colors = [];
@@ -1020,7 +1019,7 @@
                 // [추가] 서버에서 보낸 정확한 명단으로 차트를 최종 동기화 (화살표 불일치 방지)
                 if (data.participants && typeof updateParticipantsUI === 'function') {
                     console.log('게임 시작 전 명단 최종 동기화');
-                    updateParticipantsUI(data.participants);
+                    updateParticipantsUI(data.participants, null, data.confirmed_all);
                 }
 
                 const duration = data.duration;
@@ -1315,7 +1314,7 @@
                     }
 
                     if (ed.participants) {
-                        updateParticipantsUI(ed.participants);
+                        updateParticipantsUI(ed.participants, null, ed.confirmed_all);
                     }
                 }
 
@@ -1439,8 +1438,39 @@
             });
 
             // 참가자 명단 및 차트 업데이트 함수
-            function updateParticipantsUI(p_list, full_commenter_list) {
-                if (!p_list) return;
+            function updateParticipantsUI(p_list, full_commenter_list, confirmed_all) {
+                const chartCanvas = document.getElementById('dart-chart');
+                const chartContainer = chartCanvas ? chartCanvas.parentElement : null;
+
+                if (!p_list || p_list.length === 0) {
+                    console.log('참가자 없음: 룰렛 숨김');
+                    if (chart) {
+                        chart.data.labels = [];
+                        chart.data.datasets[0].data = [];
+                        chart.update();
+                    }
+                    if (chartContainer) {
+                        // 기존 메시지 삭제 후 추가
+                        const oldMsg = chartContainer.querySelector('.empty-msg');
+                        if (oldMsg) oldMsg.remove();
+
+                        const msg = document.createElement('div');
+                        msg.className = 'empty-msg';
+                        msg.style.cssText = 'position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:1.5rem; font-weight:bold; color:#888; text-align:center; width:100%;';
+                        msg.innerText = '참여 가능한 인원이 없습니다.\n(모두 당첨되었거나 댓글이 없습니다.)';
+                        chartContainer.appendChild(msg);
+                        chartCanvas.style.opacity = '0.1';
+                    }
+                    return;
+                }
+
+                // 참여자가 있을 경우 메시지 삭제 및 복구
+                if (chartContainer) {
+                    const oldMsg = chartContainer.querySelector('.empty-msg');
+                    if (oldMsg) oldMsg.remove();
+                    chartCanvas.style.opacity = '1';
+                }
+
                 console.log('참가자 UI 업데이트 실행:', p_list.length + '명');
 
                 const colors = generateColors(p_list.length);
@@ -1456,12 +1486,13 @@
                 // 2. 전체 명단 갱신
                 const allContainer = document.getElementById('all-participants-container');
                 if (allContainer) {
-                    const confirmedNames = new Set(p_list.map(p => Array.isArray(p) ? p[0] : (p.name || p.author)));
+                    // 서버에서 넘겨준 전체 확정자(당첨자 포함) 명단 사용, 없으면 현재 p_list 기준
+                    const confirmedNames = confirmed_all ? new Set(confirmed_all) : new Set(p_list.map(p => Array.isArray(p) ? p[0] : (p.name || p.author)));
                     const items = allContainer.querySelectorAll('.all-participant-item');
                     if (items.length > 0) {
                         items.forEach(item => {
                             // 명시적으로 span 내부의 텍스트만 가져오도록 수정
-                            const nameSpan = item.querySelector('span:last-child');
+                            const nameSpan = item.querySelector('.p-name');
                             if (nameSpan) {
                                 const name = nameSpan.innerText.trim();
                                 const badge = item.querySelector('.confirmed-badge');
@@ -1475,12 +1506,12 @@
                             }
                         });
                     }
-                }
 
-                // 3. 확정자 수 텍스트 갱신
-                const confNumEl = document.getElementById('conf-num');
-                if (confNumEl) {
-                    confNumEl.innerText = p_list.length;
+                    // 3. 확정자 수 텍스트 갱신 (전체 확정자 명단 크기 기준)
+                    const confNumEl = document.getElementById('conf-num');
+                    if (confNumEl) {
+                        confNumEl.innerText = confirmedNames.size;
+                    }
                 }
             }
 
@@ -1495,7 +1526,7 @@
                 if (data.participants) {
                     try {
                         if (typeof updateParticipantsUI === 'function') {
-                            updateParticipantsUI(data.participants, data.full_commenter_list);
+                            updateParticipantsUI(data.participants, data.full_commenter_list, data.confirmed_all);
                         }
                     } catch (e) { console.error('UI 업데이트 오류', e); }
                 }
@@ -1523,12 +1554,14 @@
             // 텍스트 분리 헬퍼 함수
             function splitText(text) {
                 if (!text) return [];
-                // 1. 우선순위: 콤마(,) 또는 줄바꿈(\n)
-                if (text.includes(',') || text.includes('\n')) {
-                    return text.split(/[,\n]+/).map(s => s.trim()).filter(s => s && s !== 'null');
+                // 1. 우선순위: 줄바꿈(\n) 또는 콤마(,)
+                if (text.includes('\n') || text.includes(',')) {
+                    // 줄바꿈이나 콤마가 있으면 공백을 구분자로 쓰지 않음 (이름 내 공백 보존)
+                    // 2024-03-06: "N/A" 명시적 필터링 추가
+                    return text.split(/[,\n]+/).map(s => s.trim()).filter(s => s && s.toLowerCase() !== 'null' && s !== 'N/A');
                 }
-                // 2. 콤마/줄바꿈이 없는데 공백이 있으면 공백으로 분리 (사용자 편의성)
-                return text.split(/\s+/).map(s => s.trim()).filter(s => s && s !== 'null');
+                // 2. 줄바꿈/콤마가 아예 없는데 공백이 있으면 공백으로 분리 (단순 나열 대응)
+                return text.split(/\s+/).map(s => s.trim()).filter(s => s && s.toLowerCase() !== 'null' && s !== 'N/A');
             }
 
             // 상품 및 당첨자 렌더링 함수

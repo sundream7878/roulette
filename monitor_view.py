@@ -274,8 +274,13 @@ def _broadcast_current_state():
         # [중요] 화살표 불일치 방지: 항상 가나다순 정렬
         p_list.sort(key=lambda x: x[0])
             
+        # 모든 확정자 (현재 참여자 + 기당첨자)
+        won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
+        confirmed_all = list(set([p[0] for p in p_list]) | set(won_names))
+
         socketio.emit('update_participants', {
             'participants': p_list,
+            'confirmed_all': confirmed_all,
             'full_commenter_list': full_commenters_data,
             'total_comments': len(all_commenters_list),
             'event_id': 'realtime'
@@ -463,8 +468,8 @@ def sync_participants_with_whitelist(url, existing_participants, all_commenters)
             print(f"DEBUG: [Sync] Promoted '{name}' to participant (found in whitelist)")
             
     if updated:
-        # DB(Supabase) 업데이트
-        db.save_data(url, existing_participants, '', list(all_commenters))
+        # [수정] 백그라운드나 모니터링 중 중복 저장을 피해 성능 개선
+        print(f"DEBUG: [Sync] Whitelist sync updated participants, will be saved in main loop")
         
     return existing_participants, updated
 
@@ -579,29 +584,18 @@ def fetch_comments_route():
         if url not in event_states or not incremental:
             print(f"DEBUG: Initializing state for URL: {url}")
             if not incremental:
-                # 완전 새로 시작하는 경우 (새 이벤트 버튼 또는 URL 변경)
-                # [수정] 동일 URL인 경우 기존 설정(제목, 상품, 메모 등) 유지, 당첨자/참여자만 리셋
+                # [수정] 동일 URL인 경우 기존 데이터(참여자, 댓글 등) 유지하면서 수집 시작
+                # 명시적인 삭제 요청이 없을 경우 clear_data 호출 안 함
                 existing_participants, last_comment_id, all_c_list, title, prizes, memo, winners, allow_duplicates, _allowed_list_str = db.get_data(url)
+                all_commenters = list(all_c_list) if all_c_list else []
+                print(f"DEBUG: [Fetch] Loaded existing data: {len(existing_participants)} participants, {len(all_commenters)} commenters")
                 
-                if title or prizes or memo:
-                    print(f"DEBUG: Preserving settings for existing URL: {url}")
-                    last_comment_id = None
-                    existing_participants = {}
-                    all_commenters = []
-                    winners = '' # 당첨자 리셋
-                else:
-                    last_comment_id = None
-                    existing_participants = {}
-                    all_commenters = []
+                # [중요] 기존 설정(제목, 상품, 메모 등)이 없는 경우에만 초기값 설정
+                if not (title or prizes or memo):
                     title, prizes, memo, winners, allow_duplicates = None, None, None, '', True
                 
-                db.clear_data(url) # DB 초기화 (기본 정책 유지 시)
-                
-                # 메인 룰렛용 임시 파일도 초기화
-                if os.path.exists(PARTICIPANTS_FILE):
-                    with open(PARTICIPANTS_FILE, 'w', encoding='utf-8') as f: f.write('')
-                if os.path.exists(LAST_COMMENT_FILE):
-                    with open(LAST_COMMENT_FILE, 'w', encoding='utf-8') as f: f.write('')
+                # [제거] 불필요한 clear_data 호출 차단 (데이터 소실 원인)
+                # db.clear_data(url) 
             else:
                 # 점진적 수집이지만 메모리에 없을 때 (페이지 새로고침 등)
                 existing_participants, last_comment_id, all_c_list, title, prizes, memo, winners, allow_duplicates, _ = db.get_data(url)
@@ -885,7 +879,8 @@ def start_background_monitoring(url):
                         f.write(f"[{datetime.now()}] [{url[-10:]}] Emitted update. Total commenters: {len(all_commenters_list)}\n")
                     
                     if added_count > 0:
-                        sync_files(state['participants'], state['last_id'])
+                        # [제거] NameError: sync_files (사용하지 않는 레거시 함수)
+                        pass 
                 else:
                     # 댓글이 없는 경우에도 주기적으로 생존 신고 (디버깅용)
                     if int(time.time()) % 30 == 0:
@@ -996,7 +991,12 @@ def load_comments():
         # [추가] 실시간 룰렛 업데이트용 SocketIO 브로드캐스트
         try:
             from comment_dart import socketio
-            p_list_for_roulette = [(name, int(count)) for name, count in participants_dict.items()]
+            p_list_for_roulette = []
+            for name, v in participants_dict.items():
+                count = v[0] if isinstance(v, (tuple, list)) else v
+                created_at = v[1] if isinstance(v, (tuple, list)) else None
+                p_list_for_roulette.append((name, int(count), created_at))
+            
             p_list_for_roulette.sort(key=lambda x: x[0])
             socketio.emit('update_participants', {
                 'participants': p_list_for_roulette,

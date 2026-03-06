@@ -2,7 +2,6 @@ import sys
 import os
 import time
 import json
-import sqlite3
 import unicodedata
 import random
 import datetime
@@ -15,25 +14,18 @@ from wtforms.validators import DataRequired
 
 from flask_socketio import SocketIO
 
-# 로컬 전용 모니터링 블루프린트 임포트 (이제 Render에서도 필수)
-from monitor_view import monitor_bp, db, sync_files, get_allowed_list, ACTIVE_URL_FILE, normalize_url
+# 로컬 전용 모니터링 블루프린트 임포트
+from monitor_view import monitor_bp, db, get_allowed_list, normalize_url
 HAS_MONITOR = True
 
 def get_active_url():
     """현재 활성화된 이벤트 URL을 가져옵니다."""
     if not HAS_MONITOR: return None
     try:
-        # DB에서 활성 URL 가져오기 (Render 대응 우선)
+        # DB에서 활성 URL 가져오기
         url = db.get_active_url()
         if url:
             return normalize_url(url)
-            
-        # 백업: 파일에서 가져오기
-        if os.path.exists(ACTIVE_URL_FILE):
-            with open(ACTIVE_URL_FILE, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                if content:
-                    return normalize_url(content)
     except: pass
     return None
 
@@ -529,13 +521,9 @@ def handle_confirm_winner(data=None):
                         print(f"DEBUG: Removed winner '{winner}' from participants (No Duplicates Policy)")
                 
                 # 3. 저장 (기존 데이터 보존하며 winners 및 participants 업데이트)
-                # [수정] save_data 시 winners 뿐만 아니라 participants도 명시적으로 전달하여 명단 제외 반영
                 db.save_data(active_url, participants, last_id if last_id else '', 
                              title=title, prizes=prizes, memo=memo, 
                              winners=new_winners_str, allow_duplicates=allow_duplicates)
-                
-                # [추가] 룰렛 엔진이 참조하는 participants.txt 파일도 강제 동기화 (설정 무관하게 현재 participants 상태 반영)
-                sync_files(participants, last_id if last_id else '')
                     
                 print(f"DEBUG: Saved winners to DB: {new_winners_str}")
 
@@ -757,12 +745,12 @@ def send_current_time():
         socketio.emit('update_current_time', {'current_time': now}, namespace='/')
         socketio.sleep(1)  # [중요] time.sleep 대신 socketio.sleep 사용
 
-# 서버 시작 시 현재 시간 업데이트 쓰레드 실행
-# [수정됨] threading.Thread 대신 socketio.start_background_task 사용
-socketio.start_background_task(send_current_time)
 
 
 if __name__ == '__main__':
+    # 서버 시작 시 현재 시간 업데이트 쓰레드 실행
+    socketio.start_background_task(send_current_time)
+    
     port = int(os.environ.get("PORT", 5000))
     # 로컬 개발 환경에서 Werkzeug 서버 실행을 위해 allow_unsafe_werkzeug=True 추가
     socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)

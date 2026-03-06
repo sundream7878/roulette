@@ -571,8 +571,10 @@
         <div id="all-participants-container">
             <div style="margin-bottom: 6px;">
                 <strong>📋 전체 명단</strong>
-                <span style="font-size:0.85em; color:#888;">({{ allowed_names | length if allowed_names else 0
-                    }}명)</span>
+                <span id="confirmed-count-header" style="font-size:0.85em; color:#888;">
+                    (확정: <span id="conf-num">{{ confirmed_names | length if confirmed_names else 0 }}</span>/{{
+                    allowed_names | length if allowed_names else 0 }}명)
+                </span>
             </div>
             <div style="font-size: 0.75em; color: #666; margin-bottom: 8px; padding-left: 5px;">
                 ( 💡 이름 앞에 ✅ 표시가 있는 분들이 확정된 명단입니다. )
@@ -1473,6 +1475,12 @@
                             }
                         });
                     }
+                }
+
+                // 3. 확정자 수 텍스트 갱신
+                const confNumEl = document.getElementById('conf-num');
+                if (confNumEl) {
+                    confNumEl.innerText = p_list.length;
                 }
             }
 

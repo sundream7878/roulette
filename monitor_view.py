@@ -19,12 +19,10 @@ ALLOWED_LIST_FILE = os.path.join(BASE_DIR, 'allowed_list.txt')
 ACTIVE_URL_FILE = os.path.join(BASE_DIR, 'active_event.txt')
 
 def set_active_url(url):
-    """현재 관리 중인 URL을 파일에 저장합니다."""
+    """현재 관리 중인 URL을 활성 상태로 설정합니다."""
     if not url:
         try:
             db.set_active_url(None)
-            if os.path.exists(ACTIVE_URL_FILE):
-                os.remove(ACTIVE_URL_FILE)
             print("DEBUG: Active URL cleared")
         except Exception as e:
             print(f"ERROR: Failed to clear active URL: {e}")
@@ -37,11 +35,8 @@ def set_active_url(url):
         url = f"https://cafe.naver.com/ca-fe/web/cafes/{clubid}/articles/{articleid}"
     
     try:
-        # DB에 활성 상태 저장 (Render 환경 대응)
+        # DB에 활성 상태 저장 (Supabase)
         db.set_active_url(url)
-        
-        with open(ACTIVE_URL_FILE, 'w', encoding='utf-8') as f:
-            f.write(url.strip())
         print(f"DEBUG: Active URL set to: {url}")
     except Exception as e:
         print(f"ERROR: Failed to set active URL: {e}")
@@ -58,7 +53,7 @@ def normalize_url(url):
 
 def get_allowed_list(url=None):
     """명단을 {이름: 티켓수} 사전 형식으로 파싱합니다."""
-    # URL이 있으면 DB에서 가져오기 우선
+    # 1. URL이 있으면 DB(Supabase)에서 가져오기 우선
     if url:
         try:
             _, _, _, _, _, _, _, _, allowed_list_content = db.get_data(url)
@@ -81,7 +76,7 @@ def get_allowed_list(url=None):
         except Exception as e:
             print(f"DEBUG: Error getting allowed list from DB for {url}: {e}")
 
-    # URL이 없거나 DB에 없으면 기존 파일 fallback
+    # 2. URL이 없거나 DB에 없으면 기존 파일 fallback (로컬 관리용)
     if not os.path.exists(ALLOWED_LIST_FILE):
         return {}
     allowed = {}
@@ -96,10 +91,9 @@ def get_allowed_list(url=None):
                     try:
                         tickets = int(parts[1].strip())
                     except:
-                        tickets = 1 # 파싱 실패시 기본 1장
+                        tickets = 1
                     allowed[name] = tickets
                 else:
-                    # 티켓수 없이 이름만 있는 경우 기본 1장
                     allowed[line] = 1
         return allowed
     except:
@@ -157,17 +151,8 @@ def _auto_start_monitoring():
         import time as _time
         _time.sleep(5)  # 서버 완전 초기화 대기
         try:
-            # 1. 활성 URL 확인 (파일 또는 DB)
-            active_url = None
-            if os.path.exists(ACTIVE_URL_FILE):
-                with open(ACTIVE_URL_FILE, 'r', encoding='utf-8') as f:
-                    active_url = f.read().strip()
-            if not active_url and db.supabase:
-                def fetch_active():
-                    return db.supabase.table('posts').select('url').eq('is_active', True).limit(1).execute()
-                res = _safe_supabase_call(fetch_active)
-                if res.data:
-                    active_url = res.data[0]['url']
+            # 1. 활성 URL 확인 (Supabase에서만 확인)
+            active_url = db.get_active_url()
 
             if not active_url:
                 print("DEBUG: [AutoStart] No active URL found, skipping auto-monitoring")
@@ -478,9 +463,8 @@ def sync_participants_with_whitelist(url, existing_participants, all_commenters)
             print(f"DEBUG: [Sync] Promoted '{name}' to participant (found in whitelist)")
             
     if updated:
-        # DB 업데이트 및 파일 동기화
+        # DB(Supabase) 업데이트
         db.save_data(url, existing_participants, '', list(all_commenters))
-        sync_files(existing_participants, None)
         
     return existing_participants, updated
 
@@ -596,10 +580,21 @@ def fetch_comments_route():
             print(f"DEBUG: Initializing state for URL: {url}")
             if not incremental:
                 # 완전 새로 시작하는 경우 (새 이벤트 버튼 또는 URL 변경)
-                last_comment_id = None
-                existing_participants = {}
-                all_commenters = []
-                title, prizes, memo, winners, allow_duplicates = None, None, None, None, True
+                # [수정] 동일 URL인 경우 기존 설정(제목, 상품, 메모 등) 유지, 당첨자/참여자만 리셋
+                existing_participants, last_comment_id, all_c_list, title, prizes, memo, winners, allow_duplicates, _allowed_list_str = db.get_data(url)
+                
+                if title or prizes or memo:
+                    print(f"DEBUG: Preserving settings for existing URL: {url}")
+                    last_comment_id = None
+                    existing_participants = {}
+                    all_commenters = []
+                    winners = '' # 당첨자 리셋
+                else:
+                    last_comment_id = None
+                    existing_participants = {}
+                    all_commenters = []
+                    title, prizes, memo, winners, allow_duplicates = None, None, None, '', True
+                
                 db.clear_data(url) # DB 초기화 (기본 정책 유지 시)
                 
                 # 메인 룰렛용 임시 파일도 초기화
@@ -695,54 +690,45 @@ def fetch_comments_route():
                      memo=current_state.get('memo'), winners=current_state.get('winners'),
                      allow_duplicates=current_state.get('allow_duplicates'))
         
+        # [추가] 실시간 룰렛 업데이트용 SocketIO 브로드캐스트
         try:
-            with open(PARTICIPANTS_FILE, 'w', encoding='utf-8') as f:
-                for name, count in existing_participants.items():
-                    f.write(f"{name} {count}\n")
-            if current_state.get('last_id'):
-                with open(LAST_COMMENT_FILE, 'w', encoding='utf-8') as f:
-                    f.write(str(current_state['last_id']))
-                    
-            # [추가] 실시간 룰렛 업데이트용 SocketIO 브로드캐스트
-
-            try:
-                from comment_dart import socketio
-                total_comments = sum(v[0] if isinstance(v, (tuple, list)) else v for v in existing_participants.values())
-                
-                # 룰렛 페이지가 기대하는 형식 [(이름, 횟수, 시간), ...]
-                p_list_for_roulette = []
-                for name, v in existing_participants.items():
-                    count = v[0] if isinstance(v, (tuple, list)) else v
-                    created_at = v[1] if isinstance(v, (tuple, list)) else None
-                    p_list_for_roulette.append((name, count, created_at))
-                
-                # [중요] 화살표 불일치 방지: 고정 정렬 순서 보장
-                p_list_for_roulette.sort(key=lambda x: str(x[0]))
-                
-                # 모니터 페이지를 위한 전체 명단 (상태 포함)
-                full_commenters_data = []
-                for item in all_commenters:
-                    name = item['name'] if isinstance(item, dict) else item
-                    created_at = item.get('created_at') if isinstance(item, dict) else None
-                    full_commenters_data.append({
-                        'name': name,
-                        'is_whitelisted': name in allowed_list,
-                        'tickets': allowed_list.get(name, 0),
-                        'created_at': created_at
-                    })
-
-                socketio.emit('update_participants', {
-                    'participants': p_list_for_roulette,
-                    'full_commenter_list': full_commenters_data,
-                    'total_comments': total_comments_count,
-                    'event_id': event_id
+            from comment_dart import socketio
+            total_comments = sum(v[0] if isinstance(v, (tuple, list)) else v for v in existing_participants.values())
+            
+            # 룰렛 페이지가 기대하는 형식 [(이름, 횟수, 시간), ...]
+            p_list_for_roulette = []
+            for name, v in existing_participants.items():
+                count = v[0] if isinstance(v, (tuple, list)) else v
+                created_at = v[1] if isinstance(v, (tuple, list)) else None
+                p_list_for_roulette.append((name, count, created_at))
+            
+            # [중요] 화살표 불일치 방지: 고정 정렬 순서 보장
+            p_list_for_roulette.sort(key=lambda x: str(x[0]))
+            
+            # 모니터 페이지를 위한 전체 명단 (상태 포함)
+            full_commenters_data = []
+            for item in all_commenters:
+                name = item['name'] if isinstance(item, dict) else item
+                created_at = item.get('created_at') if isinstance(item, dict) else None
+                full_commenters_data.append({
+                    'name': name,
+                    'is_whitelisted': name in allowed_list,
+                    'tickets': allowed_list.get(name, 0),
+                    'created_at': created_at
                 })
-                print(f"DEBUG: [SocketIO] Broadcasted update for event: {event_id}")
-            except Exception as se:
-                print(f"DEBUG: SocketIO Broadcast Error: {se}")
 
-        except Exception as fe:
-            print(f"DEBUG: Sync Error: {fe}")
+            socketio.emit('update_participants', {
+                'participants': p_list_for_roulette,
+                'full_commenter_list': full_commenters_data,
+                'total_comments': total_comments_count,
+                'event_id': event_id
+            })
+            print(f"DEBUG: [SocketIO] Broadcasted update for event: {event_id}")
+        except Exception as se:
+            print(f"DEBUG: SocketIO Broadcast Error: {se}")
+
+    except Exception as fe:
+        print(f"DEBUG: Sync Error: {fe}")
         
         # 결과 포맷팅 (티켓수 숨김 - 요청 반영)
         participant_list = [f"{name} (확정)" for name in existing_participants.keys()]

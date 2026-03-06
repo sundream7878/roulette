@@ -690,7 +690,9 @@
 
                 Chart.register(ChartDataLabels);
 
-                const ctx = document.getElementById('dart-chart').getContext('2d');
+                const chartEl = document.getElementById('dart-chart');
+                if (!chartEl) return;
+                const ctx = chartEl.getContext('2d');
                 chart = new Chart(ctx, {
                     type: 'doughnut',
                     data: {
@@ -725,7 +727,7 @@
                 }
             },
             cutout: '40%',
-                radius: '100% '
+                radius: '100%'
         }
                 });
         console.log("차트 초기화 완료");
@@ -1442,56 +1444,50 @@
                 const chartCanvas = document.getElementById('dart-chart');
                 const chartContainer = chartCanvas ? chartCanvas.parentElement : null;
 
-                if (!p_list || p_list.length === 0) {
-                    console.log('참가자 없음: 룰렛 숨김');
-                    if (chart) {
-                        chart.data.labels = [];
-                        chart.data.datasets[0].data = [];
-                        chart.update();
-                    }
-                    if (chartContainer) {
-                        // 기존 메시지 삭제 후 추가
-                        const oldMsg = chartContainer.querySelector('.empty-msg');
-                        if (oldMsg) oldMsg.remove();
-
-                        const msg = document.createElement('div');
-                        msg.className = 'empty-msg';
-                        msg.style.cssText = 'position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:1.5rem; font-weight:bold; color:#888; text-align:center; width:100%;';
-                        msg.innerText = '참여 가능한 인원이 없습니다.\n(모두 당첨되었거나 댓글이 없습니다.)';
-                        chartContainer.appendChild(msg);
-                        chartCanvas.style.opacity = '0.1';
-                    }
-                    return;
-                }
-
-                // 참여자가 있을 경우 메시지 삭제 및 복구
+                // 1. 차트 영역 안내 메시지 처리
                 if (chartContainer) {
                     const oldMsg = chartContainer.querySelector('.empty-msg');
                     if (oldMsg) oldMsg.remove();
-                    chartCanvas.style.opacity = '1';
                 }
 
-                console.log('참가자 UI 업데이트 실행:', p_list.length + '명');
-
-                const colors = generateColors(p_list.length);
-
-                // 1. 차트 갱신
-                if (chart) {
-                    chart.data.labels = p_list.map(p => Array.isArray(p) ? p[0] : (p.name || p.author));
-                    chart.data.datasets[0].data = p_list.map(p => Array.isArray(p) ? p[1] : p.count);
-                    chart.data.datasets[0].backgroundColor = colors;
-                    chart.update('none');
+                if (!p_list || p_list.length === 0) {
+                    console.log('참가자 없음: 안내 메시지 표시 및 차트 비우기');
+                    if (chart) {
+                        chart.data.labels = [];
+                        chart.data.datasets[0].data = [];
+                        chart.update('none');
+                    }
+                    if (chartContainer) {
+                        const msg = document.createElement('div');
+                        msg.className = 'empty-msg';
+                        msg.style.cssText = 'position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:1.5rem; font-weight:bold; color:#888; text-align:center; width:100%; z-index:10;';
+                        msg.innerText = '참여 가능한 인원이 없습니다.\n(모두 당첨되었거나 댓글이 없습니다.)';
+                        chartContainer.appendChild(msg);
+                    }
+                } else {
+                    // 참여자가 있을 경우 차트 데이터 갱신
+                    if (chart) {
+                        if (chartCanvas) {
+                            chartCanvas.style.opacity = '1';
+                            chartCanvas.style.display = 'block';
+                        }
+                        const colors = generateColors(p_list.length);
+                        chart.data.labels = p_list.map(p => Array.isArray(p) ? p[0] : (p.name || p.author));
+                        chart.data.datasets[0].data = p_list.map(p => Array.isArray(p) ? p[1] : p.count);
+                        chart.data.datasets[0].backgroundColor = colors;
+                        chart.update('none');
+                    }
                 }
 
-                // 2. 전체 명단 갱신
+                console.log('참가자 UI 업데이트 실행:', (p_list ? p_list.length : 0) + '명');
+
+                // 2. 전체 명단 갱신 (참여자가 없어도 명단은 갱신되어야 함)
                 const allContainer = document.getElementById('all-participants-container');
                 if (allContainer) {
-                    // 서버에서 넘겨준 전체 확정자(당첨자 포함) 명단 사용, 없으면 현재 p_list 기준
-                    const confirmedNames = confirmed_all ? new Set(confirmed_all) : new Set(p_list.map(p => Array.isArray(p) ? p[0] : (p.name || p.author)));
+                    const confirmedNames = confirmed_all ? new Set(confirmed_all) : new Set(p_list ? p_list.map(p => Array.isArray(p) ? p[0] : (p.name || p.author)) : []);
                     const items = allContainer.querySelectorAll('.all-participant-item');
                     if (items.length > 0) {
                         items.forEach(item => {
-                            // 명시적으로 span 내부의 텍스트만 가져오도록 수정
                             const nameSpan = item.querySelector('.p-name');
                             if (nameSpan) {
                                 const name = nameSpan.innerText.trim();
@@ -1507,7 +1503,7 @@
                         });
                     }
 
-                    // 3. 확정자 수 텍스트 갱신 (전체 확정자 명단 크기 기준)
+                    // 3. 확정자 수 텍스트 갱신
                     const confNumEl = document.getElementById('conf-num');
                     if (confNumEl) {
                         confNumEl.innerText = confirmedNames.size;

@@ -964,9 +964,14 @@ def load_comments():
         total_comments_count = len(all_commenter_list)
         
         # 전체 명단 데이터 준비
-        allowed_list = get_allowed_list()
+        allowed_list = get_allowed_list(url)
         full_commenters_data = []
-        for name in sorted(all_commenter_list):
+        
+        # [수정] all_commenter_list는 딕셔너리 리스트이므로 이름 기준으로 정렬
+        sorted_commenters = sorted(all_commenter_list, key=lambda x: x['name'] if isinstance(x, dict) else x)
+        
+        for item in sorted_commenters:
+            name = item['name'] if isinstance(item, dict) else item
             full_commenters_data.append({
                 'name': name,
                 'is_whitelisted': name in allowed_list,

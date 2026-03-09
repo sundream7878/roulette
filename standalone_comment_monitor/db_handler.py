@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Tuple
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import threading
 
 # .env 로드
 load_dotenv()
@@ -105,7 +106,8 @@ class CommentDatabase:
             conn.commit()
         
         if self.supabase:
-            self._sync_clear_supabase(url)
+            # [최적화] Supabase 동기화를 백그라운드 스레드에서 실행 (비동기)
+            threading.Thread(target=self._sync_clear_supabase, args=(url,), daemon=True).start()
 
     @retry_supabase
     def _sync_clear_supabase(self, url):
@@ -170,9 +172,13 @@ class CommentDatabase:
             
             conn.commit()
 
-        # 2. Supabase 동기화 (최적화된 방식 유지)
+        # 2. Supabase 동기화 (백그라운드 스레드에서 실행하여 로컬 지연 방지)
         if self.supabase:
-            self._sync_save_supabase(url, participants_dict, last_comment_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list)
+            threading.Thread(
+                target=self._sync_save_supabase, 
+                args=(url, participants_dict, last_comment_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list),
+                daemon=True
+            ).start()
 
     @retry_supabase
     def _sync_save_supabase(self, url, participants_dict, last_comment_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list):
@@ -253,7 +259,8 @@ class CommentDatabase:
             conn.commit()
         
         if self.supabase:
-            self._sync_active_url_supabase(url)
+            # [최적화] 활성 URL 동기화를 백그라운드 스레드에서 실행
+            threading.Thread(target=self._sync_active_url_supabase, args=(url,), daemon=True).start()
 
     @retry_supabase
     def _sync_active_url_supabase(self, url):
@@ -280,7 +287,8 @@ class CommentDatabase:
             cursor.execute("DELETE FROM participants WHERE url = ? AND author = ?", (url, author))
             conn.commit()
         if self.supabase:
-            self._sync_delete_p_supabase(url, author)
+            # [최적화] 참가자 삭제 동기화를 백그라운드 스레드에서 실행
+            threading.Thread(target=self._sync_delete_p_supabase, args=(url, author), daemon=True).start()
 
     @retry_supabase
     def _sync_delete_p_supabase(self, url, author):

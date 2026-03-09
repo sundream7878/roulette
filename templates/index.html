@@ -1664,20 +1664,20 @@
         (function () {
             var SUPABASE_URL = 'https://kbnszmnmvppfbdpdefqw.supabase.co';
             var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtibnN6bW5tdnBwZmJkcGRlZnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNzU2MDgsImV4cCI6MjA4NzY1MTYwOH0.nFTpkNsG5Wk3Q10khoAYNyA0UaKpP2kmHLoE5LsVh4A';
-            var COOLDOWN_MS = 15000; // 15초 내 중복 새로고침 방지 (5초에서 원복/상향)
+            var COOLDOWN_MS = 3000; // [최적화] 쿨다운을 3초로 단축하여 빠른 이벤트 전환 대응
             var _reloadTimer = null;
 
-            window._scheduleReload = function (eventType, delayOverride) {
-                // [수정] 게임 중이거나 당첨자 화면이 떠 있는 동안에는 새로고침 절대 금지
-                if (window._gameIsActive || window._winnerDisplayed) {
+            window._scheduleReload = function (eventType, delayOverride, force) {
+                // [수정] force가 true이면 게임 중이거나 당첨자 표시 중이라도 새로고침 허용 (새 이벤트 전환 대응)
+                if (!force && (window._gameIsActive || window._winnerDisplayed)) {
                     console.log('[실시간] 게임 중 또는 당첨자 표시 중, 새로고침 대기');
                     return;
                 }
 
-                // sessionStorage 쿨다운
+                // sessionStorage 쿨다운 (force일 때는 쿨다운 무시 선택 가능하나 일단 유지)
                 var lastReload = parseInt(sessionStorage.getItem('_rtLastReload') || '0');
                 var now = Date.now();
-                if (now - lastReload < COOLDOWN_MS) {
+                if (!force && (now - lastReload < COOLDOWN_MS)) {
                     console.log('[실시간] 쿨다운 중 (남은 시간: ' + (COOLDOWN_MS - (now - lastReload)) + 'ms)');
                     return;
                 }
@@ -1697,6 +1697,19 @@
                 var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 sb.channel('roulette-rt')
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, function (p) {
+                        // [최적화] 새로운 이벤트 URL이 활성화되었는지 확인
+                        if (p.new && p.new.is_active === true) {
+                            var newUrl = p.new.url;
+                            var currentUrlNormalized = (typeof currentUrl !== 'undefined') ? currentUrl : '';
+
+                            if (newUrl && newUrl !== currentUrlNormalized) {
+                                console.log('[Supabase RT] New active URL detected:', newUrl);
+                                // 새로운 이벤트로의 전환은 'force'로 처리하여 즉시 새로고침
+                                window._scheduleReload('NewEvent', 1000, true);
+                                return;
+                            }
+                        }
+
                         // 제목, 상품 등 핵심 설정 변경 시에만 새로고침
                         console.log('[Supabase RT] settings changed:', p.eventType);
                         window._scheduleReload('Settings:' + p.eventType);

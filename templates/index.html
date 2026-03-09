@@ -340,6 +340,14 @@
             display: block;
             margin-bottom: 20px;
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+            white-space: nowrap;
+            /* [수정] 이름이 길어도 두 줄로 내려가지 않게 설정 */
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 500px;
+            /* 아주 긴 이름 대비 */
+            margin-left: auto;
+            margin-right: auto;
         }
 
         #congrat-msg {
@@ -1118,6 +1126,19 @@
 
                             stopBeepLoop();
 
+                            // [최적화] 서버 응답 기다리지 않고 즉시 당첨자 발표 (지연 시간 제거)
+                            const winnerName = window.animationInfo.winner;
+                            const winnerOverlay = document.getElementById('winner-overlay');
+                            const winnerNameSpan = document.getElementById('winner-name-v2');
+                            if (winnerOverlay && winnerNameSpan && winnerName) {
+                                winnerNameSpan.innerText = winnerName + '님';
+                                winnerOverlay.style.display = 'block';
+                                window._winnerDisplayed = true;
+                                winnerOverlay.style.animation = 'winner-popup 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
+                                console.log('애니메이션 종료 후 즉시 당첨 발표:', winnerName);
+                                playFanfare();
+                            }
+
                             socket.emit('confirm_winner', { url: currentUrl });
                         }
                         return;
@@ -1144,11 +1165,23 @@
 
                         stopBeepLoop();
 
+                        // [최적화] 백업 타이머에서도 즉시 당첨자 발표
+                        const winnerName = window.animationInfo.winner;
+                        const winnerOverlay = document.getElementById('winner-overlay');
+                        const winnerNameSpan = document.getElementById('winner-name-v2');
+                        if (winnerOverlay && winnerNameSpan && winnerName && !window._winnerDisplayed) {
+                            winnerNameSpan.innerText = winnerName + '님';
+                            winnerOverlay.style.display = 'block';
+                            window._winnerDisplayed = true;
+                            winnerOverlay.style.animation = 'winner-popup 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
+                            playFanfare();
+                        }
+
                         socket.emit('confirm_winner', { url: currentUrl });
 
                         console.log('백업 타이머로 애니메이션 종료');
                     }
-                }, totalDuration + 100);
+                }, totalDuration + 50); // [최적화] 여유 시간을 100ms -> 50ms로 단축
             });
 
             socket.on('update_winner', function (data) {

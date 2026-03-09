@@ -19,7 +19,7 @@ ALLOWED_LIST_FILE = os.path.join(BASE_DIR, 'allowed_list.txt')
 ACTIVE_URL_FILE = os.path.join(BASE_DIR, 'active_event.txt')
 
 def set_active_url(url):
-    """현재 관리 중인 URL을 활성 상태로 설정합니다."""
+    """현재 관리 중인 URL을 활성 상태로 설정합니다. (중복 호출 방지)"""
     if not url:
         try:
             db.set_active_url(None)
@@ -35,6 +35,11 @@ def set_active_url(url):
         url = f"https://cafe.naver.com/ca-fe/web/cafes/{clubid}/articles/{articleid}"
     
     try:
+        # 현재 활성 URL과 동일하면 스킵 (Supabase Realtime 무한 루프 방지)
+        current_active = db.get_active_url()
+        if current_active == url:
+            return
+
         # DB에 활성 상태 저장 (Supabase)
         db.set_active_url(url)
         print(f"DEBUG: Active URL set to: {url}")
@@ -674,15 +679,25 @@ def fetch_comments_route():
         # [추가] 명단 동기화 (화이트리스트 업데이트 반영)
         existing_participants, _ = sync_participants_with_whitelist(url, existing_participants, all_commenters)
         
-        # [추가] 활성 URL 설정 및 타임스탬프 갱신
-        set_active_url(url)
-        db.update_timestamp(url)
-        
-        # DB 저장 및 파일 동기화 (최종 결과만) - 기존 설정(제목, 상품, 메모 등) 유지
-        db.save_data(url, existing_participants, current_state['last_id'], list(all_commenters),
-                     title=current_state.get('title'), prizes=current_state.get('prizes'),
-                     memo=current_state.get('memo'), winners=current_state.get('winners'),
-                     allow_duplicates=current_state.get('allow_duplicates'))
+        # [최적화] 실시간 새로고침 무한 루프 방지: 새 댓글이 있거나 전체 수집(Full Scan)일 때만 DB 동기화
+        if comments or not incremental:
+            # 활성 URL 설정 (URL이 바뀐 경우에만 DB 반영됨)
+            set_active_url(url)
+            
+            # 타임스탬프 갱신 및 DB 저장 (이 작업이 Supabase Realtime 새로고침을 트리거함)
+            db.update_timestamp(url)
+            db.save_data(url, existing_participants, current_state['last_id'], list(all_commenters),
+                         title=current_state.get('title'), prizes=current_state.get('prizes'),
+                         memo=current_state.get('memo'), winners=current_state.get('winners'),
+                         allow_duplicates=current_state.get('allow_duplicates'))
+            print(f"DEBUG: [Fetch] DB Sync completed (New comments: {len(comments) if comments else 0})")
+        else:
+            # 새 댓글이 없는 점진적 수집(Polling)인 경우, 활성 URL만 메모리에 설정
+            set_active_url(url)
+            # db.update_timestamp(url) # 스킵
+            # db.save_data(...)      # 스킵
+            # print(f"DEBUG: [Fetch] Skiped DB Sync (No new comments)")
+            pass
         
         # [추가] 실시간 룰렛 업데이트용 SocketIO 브로드캐스트
         try:
@@ -721,26 +736,22 @@ def fetch_comments_route():
         except Exception as se:
             print(f"DEBUG: SocketIO Broadcast Error: {se}")
 
-    except Exception as fe:
-        print(f"DEBUG: Sync Error: {fe}")
-        
-        # 결과 포맷팅 (티켓수 숨김 - 요청 반영)
+        # 3. 결과 포맷팅 및 응답 데이터 준비
         participant_list = [f"{name} (확정)" for name in existing_participants.keys()]
         total_participants = len(existing_participants)
-        
         response_id = int(time.time())
         message = f'{new_participants_found}명의 새 확정 참가자 추가 (총: {total_participants}명)' if incremental else f'{total_participants}명의 확정 참가자가 수집되었습니다.'
         
-        # [추가] 실시간 백그라운드 모니터링 시작 (이미 시작되지 않았다면)
+        # [추가] 실시간 백그라운드 모니터링 시작
         if incremental and url not in active_monitoring_urls:
             start_background_monitoring(url)
 
         return jsonify({
             'event_id': event_id,
             'message': message,
-            'participants': participant_list, # 확정 명단 (String 표시용)
-            'participants_raw': p_list_for_roulette, # Raw data for UI table
-            'full_commenter_list': full_commenters_data if 'full_commenters_data' in locals() else [],
+            'participants': participant_list,
+            'participants_raw': p_list_for_roulette,
+            'full_commenter_list': full_commenters_data,
             'total_comments': total_comments_count,
             'new_comments': new_comments_count,
             'event_title': current_state.get('title'),
@@ -748,13 +759,19 @@ def fetch_comments_route():
             'is_incremental': incremental,
             'response_id': response_id,
             'stats': {
-                'unique_participants': len(existing_participants),
+                'unique_participants': total_participants,
                 'total_comment_count': total_comments_count,
                 'new_comment_count': new_comments_count,
                 'collection_method': 'incremental' if incremental else 'full',
                 'event_id': event_id
             }
         })
+        
+    except Exception as fe:
+        print(f"DEBUG: Sync Error: {fe}")
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(fe)}), 500
         
     except Exception as e:
         import traceback
@@ -948,7 +965,7 @@ def load_comments():
         event_id = url
         event_states[url] = {
             'participants': participants_dict,
-            'all_commenters': set(all_commenter_list),
+            'all_commenters': all_commenter_list,
             'last_id': last_id,
             'url': url,
             'seen_ids': set(),

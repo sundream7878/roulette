@@ -1585,12 +1585,14 @@
                 if (!text) return [];
                 // 1. 우선순위: 줄바꿈(\n) 또는 콤마(,)
                 if (text.includes('\n') || text.includes(',')) {
-                    // 줄바꿈이나 콤마가 있으면 공백을 구분자로 쓰지 않음 (이름 내 공백 보존)
-                    // 2024-03-06: "N/A" 명시적 필터링 추가
+                    // 줄바꿈이나 콤마가 있으면 해당 구분자로 분리
                     return text.split(/[,\n]+/).map(s => s.trim()).filter(s => s && s.toLowerCase() !== 'null' && s !== 'N/A');
                 }
-                // 2. 줄바꿈/콤마가 아예 없는데 공백이 있으면 공백으로 분리 (단순 나열 대응)
-                return text.split(/\s+/).map(s => s.trim()).filter(s => s && s.toLowerCase() !== 'null' && s !== 'N/A');
+                // 2. 줄바꿈/콤마가 없으면 단일 항목으로 취급
+                // (이름 내의 공백이나 상품명 내의 공백을 보존하기 위함)
+                const trimmed = text.trim();
+                if (!trimmed || trimmed.toLowerCase() === 'null' || trimmed === 'N/A') return [];
+                return [trimmed];
             }
 
             // 상품 및 당첨자 렌더링 함수

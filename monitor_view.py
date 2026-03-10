@@ -443,8 +443,13 @@ def _supabase_poll_loop():
                 # [중요] 항상 가나다순 정렬하여 화살표 동기화
                 p_list.sort(key=lambda x: str(x[0]))
                 
+                # [추가] 전체 확정자 명단 (참여자 + 기당첨자) 계산하여 UI 상태 보존
+                won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
+                confirmed_all = list(set(r['author'] for r in participants) | set(won_names))
+
                 socketio.emit('update_participants', {
                     'participants': p_list,
+                    'confirmed_all': confirmed_all,
                     'full_commenter_list': full_commenters_data,
                     'total_comments': current_total_count,
                     'event_id': 'realtime'

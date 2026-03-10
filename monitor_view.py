@@ -706,11 +706,12 @@ def fetch_comments_route():
             
             # 타임스탬프 갱신 및 DB 저장 (이 작업이 Supabase Realtime 새로고침을 트리거함)
             db.update_timestamp(url)
+            # [중요] 모든 설정을 함께 저장하여 Supabase 동기화 보장 (Render 환경 stale 데이터 방지)
             db.save_data(url, existing_participants, current_state['last_id'], list(all_commenters),
                          title=current_state.get('title'), prizes=current_state.get('prizes'),
                          memo=current_state.get('memo'), winners=current_state.get('winners'),
                          allow_duplicates=current_state.get('allow_duplicates'))
-            print(f"DEBUG: [Fetch] DB Sync completed (New comments: {len(comments) if comments else 0})")
+            print(f"DEBUG: [Fetch] DB Sync completed (Full settings sync for {url})")
         else:
             # 새 댓글이 없는 점진적 수집(Polling)인 경우, 활성 URL만 메모리에 설정
             set_active_url(url)

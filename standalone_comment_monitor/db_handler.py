@@ -343,9 +343,17 @@ class CommentDatabase:
 
     @retry_supabase
     def _sync_active_url_supabase(self, url):
-        self.supabase.table("posts").update({"is_active": False}).neq("url", "void").execute()
-        if url:
-            self.supabase.table("posts").upsert({"url": url, "is_active": True}, on_conflict="url").execute()
+        """Supabase의 활성 URL 상태를 동기화합니다. (하나만 active=True 보장)"""
+        try:
+            # 1. 모든 게시물의 is_active를 먼저 False로 업데이트 (neq 'void'는 트릭)
+            self.supabase.table("posts").update({"is_active": False}).neq("url", "void").execute()
+            
+            # 2. 지정된 URL만 is_active를 True로 설정
+            if url:
+                self.supabase.table("posts").upsert({"url": url, "is_active": True}, on_conflict="url").execute()
+                print(f"DEBUG: [SupabaseSync] Active URL successfully set to: {url}")
+        except Exception as e:
+            print(f"ERROR: [SupabaseSync] Failed to sync active URL: {e}")
 
     def set_active_url_local_only(self, url: str):
         """Supabase 동기화 없이 로컬 SQLite의 활성 상태만 변경합니다. (폴링 루프용)"""

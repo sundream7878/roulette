@@ -1046,6 +1046,26 @@
             evt.currentTarget.classList.add("active");
         }
 
+        async function naverLogin() {
+            if (!confirm("네이버 로그인 창을 띄웁니다. 서버(로컬)에서 브라우저가 열리면 로그인을 완료해 주세요.\n로그인 완료 후 자동으로 쿠키가 갱신됩니다.")) return;
+
+            showStatus("네이버 로그인 중... 브라우저를 확인하세요.", "info");
+            try {
+                const res = await fetch('/api/naver_login', { method: 'POST' });
+                const data = await res.json();
+                if (data.message) {
+                    alert(data.message);
+                    showStatus("로그인 완료! 다시 수집을 시도하세요.", "success");
+                } else {
+                    alert("오류: " + data.error);
+                    showStatus("로그인 실패: " + data.error, "error");
+                }
+            } catch (e) {
+                alert("네트워크 오류: " + e);
+                showStatus("네트워크 오류 발생", "error");
+            }
+        }
+
         function startMonitoring() {
             const urlInput = document.getElementById('url');
             const url = urlInput.value.trim();

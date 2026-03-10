@@ -389,6 +389,12 @@ def _supabase_poll_loop():
 
             if settings_changed:
                 print(f"DEBUG: [Realtime] Settings changed! Broadcasting...")
+                
+                # [추가] 글로벌 활성 URL이 변경된 경우 로컬 상태도 동기화 (Render 등 분산 환경 대응)
+                if url != _last_supabase_state['active_url']:
+                    print(f"DEBUG: [Realtime] Active URL changed to {url}. Syncing local state...")
+                    db.set_active_url_local_only(url)
+
                 socketio.emit('update_event_settings', {
                     'url': url, 'title': title, 'prizes': prizes, 'memo': memo, 'winners': winners, 'allowed_list': allowed_list_str
                 })

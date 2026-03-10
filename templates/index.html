@@ -1638,6 +1638,14 @@
                 }
 
                 if (!gameIsActive) {
+                    // [추가] URL이 변경된 경우 즉시 새로고침 (새 이벤트 전환 대응)
+                    if (data.url && data.url !== currentUrl) {
+                        console.log(`새로운 이벤트 URL 감지 (${data.url}), 즉시 새로고침 실행`);
+                        if (window._scheduleReload) window._scheduleReload('SocketIO:NewEvent', 1000, true);
+                        else window.location.reload();
+                        return;
+                    }
+
                     // 당첨자가 포함된 업데이트인 경우 10초 대기, 아니면 기존 2초 대기
                     const hasNewWinner = data.winners && data.winners !== prizeListEl.dataset.winners;
                     const delay = hasNewWinner ? 10000 : 2000;

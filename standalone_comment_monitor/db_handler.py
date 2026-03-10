@@ -347,23 +347,43 @@ class CommentDatabase:
         if url:
             self.supabase.table("posts").upsert({"url": url, "is_active": True}, on_conflict="url").execute()
 
-    def get_active_url(self) -> str:
-        # 1. SQLite 확인
+    def set_active_url_local_only(self, url: str):
+        """Supabase 동기화 없이 로컬 SQLite의 활성 상태만 변경합니다. (폴링 루프용)"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT url FROM posts WHERE is_active = 1 LIMIT 1")
-            row = cursor.fetchone()
-            if row:
-                return row[0]
-        
-        # 2. Supabase 확인
+            cursor.execute("UPDATE posts SET is_active = 0")
+            if url:
+                cursor.execute("SELECT url FROM posts WHERE url = ?", (url,))
+                if cursor.fetchone():
+                    cursor.execute("UPDATE posts SET is_active = 1 WHERE url = ?", (url,))
+                else:
+                    cursor.execute("INSERT INTO posts (url, is_active, updated_at) VALUES (?, 1, ?)", 
+                                 (url, datetime.now().isoformat()))
+            conn.commit()
+            print(f"DEBUG: [LocalSync] Local active URL synchronized to: {url}")
+
+    def get_active_url(self) -> str:
+        """현재 활성화된 이벤트 URL을 가져옵니다. (Supabase 우선 순위)"""
+        # 1. Supabase 확인 (글로벌 상태 우선)
         if self.supabase:
             try:
                 res = self.supabase.table("posts").select("url").eq("is_active", True).limit(1).execute()
-                if res.data:
+                if res.data and res.data[0].get('url'):
                     return res.data[0]['url']
-            except:
-                pass
+            except Exception as e:
+                print(f"DEBUG: [get_active_url Supabase Error] {e}")
+        
+        # 2. SQLite 확인 (오프라인 또는 Supabase에 없을 경우 Fallback)
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT url FROM posts WHERE is_active = 1 LIMIT 1")
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
+        except Exception as e:
+            print(f"DEBUG: [get_active_url SQLite Error] {e}")
+            
         return None
 
     def get_all_urls(self) -> List[str]:

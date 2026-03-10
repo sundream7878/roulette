@@ -204,6 +204,16 @@
             transform: scale(0.98);
         }
 
+        .btn-naver {
+            background: #03c75a;
+            color: white;
+            border: none;
+        }
+
+        .btn-naver:hover {
+            background: #02b351;
+        }
+
         .btn-main {
             background: var(--primary-color);
             color: white;
@@ -790,6 +800,10 @@
                         불러오기</button>
                     <button onclick="newEvent()" class="btn-outline"
                         style="background-color: #FF9800; color: white; border: none;">새 이벤트 시작</button>
+                </div>
+
+                <div style="margin-top: 10px;">
+                    <button onclick="naverLogin()" class="btn-naver" style="width: 100%;">네이버 로그인 갱신 (쿠키 만료 시)</button>
                 </div>
 
                 <div style="margin-top: 10px;">

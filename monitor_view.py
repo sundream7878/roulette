@@ -1149,6 +1149,22 @@ def api_get_allowed_list():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@monitor_bp.route('/api/naver_login', methods=['POST'])
+def naver_login():
+    """Selenium을 사용하여 네이버 수동 로그인을 실행하고 쿠키를 갱신합니다."""
+    if not SeleniumCommentScraper:
+        return jsonify({'error': 'Selenium을 사용할 수 없는 환경입니다.'}), 500
+        
+    try:
+        scraper = SeleniumCommentScraper()
+        success = scraper.login_to_naver()
+        if success:
+            return jsonify({'message': '네이버 로그인이 완료되었습니다. 이제 댓글 수집이 가능합니다.'})
+        else:
+            return jsonify({'error': '로그인이 완료되지 않았거나 취소되었습니다.'}), 400
+    except Exception as e:
+        return jsonify({'error': f'로그인 중 오류 발생: {str(e)}'}), 500
+
 @monitor_bp.route('/api/save_allowed_list', methods=['POST'])
 def api_save_allowed_list():
     data = request.json

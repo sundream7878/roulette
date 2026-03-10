@@ -212,12 +212,13 @@ class CommentDatabase:
                 self.supabase.table("commenters").upsert(c_batch[i:i+1000], on_conflict="url,author").execute()
 
     def get_data(self, url: str) -> Tuple[Dict, str, List, str, str, str, str, bool, str]:
-        """SQLite에서 데이터 로드"""
+        """SQLite에서 데이터 로드 (없으면 Supabase에서 가져오기 시도)"""
         participants = {}
         all_commenters = []
         last_id, title, prizes, memo, winners, allowed_list_str = None, None, None, None, '', None
         allow_duplicates = True
 
+        # 1. SQLite 시도
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -234,17 +235,87 @@ class CommentDatabase:
                 allow_duplicates = bool(row['allow_duplicates'])
                 allowed_list_str = row['allowed_list']
 
-            # Participants
-            cursor.execute("SELECT author, count, created_at FROM participants WHERE url = ?", (url,))
-            for row in cursor.fetchall():
-                participants[row['author']] = (row['count'], row['created_at'])
+                # Participants
+                cursor.execute("SELECT author, count, created_at FROM participants WHERE url = ?", (url,))
+                for p_row in cursor.fetchall():
+                    participants[p_row['author']] = (p_row['count'], p_row['created_at'])
 
-            # Commenters
-            cursor.execute("SELECT author, created_at FROM commenters WHERE url = ?", (url,))
-            for row in cursor.fetchall():
-                all_commenters.append({'name': row['author'], 'created_at': row['created_at']})
+                # Commenters
+                cursor.execute("SELECT author, created_at FROM commenters WHERE url = ?", (url,))
+                for c_row in cursor.fetchall():
+                    all_commenters.append({'name': c_row['author'], 'created_at': c_row['created_at']})
+                
+                return participants, last_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list_str
+
+        # 2. SQLite에 데이터가 없고 Supabase가 활성화된 경우 Supabase 시도
+        if self.supabase:
+            print(f"DEBUG: [Supabase Fallback] Fetching data for {url}")
+            try:
+                # Post 정보 가져오기
+                res = self.supabase.table("posts").select("*").eq("url", url).execute()
+                if res.data:
+                    post = res.data[0]
+                    last_id = post.get('last_comment_id')
+                    title = post.get('title')
+                    prizes = post.get('prizes')
+                    memo = post.get('memo')
+                    winners = post.get('winners', '')
+                    allow_duplicates = bool(post.get('allow_duplicates', True))
+                    allowed_list_str = post.get('allowed_list')
+
+                    # Participants 가져오기
+                    p_res = self.supabase.table("participants").select("*").eq("url", url).execute()
+                    for p in p_res.data:
+                        participants[p['author']] = (p['count'], p.get('created_at'))
+
+                    # Commenters 가져오기
+                    c_res = self.supabase.table("commenters").select("*").eq("url", url).execute()
+                    for c in c_res.data:
+                        all_commenters.append({'name': c['author'], 'created_at': c.get('created_at')})
+
+                    # SQLite에 캐싱 (Hydration)
+                    print(f"DEBUG: [Hydration] Saving {len(participants)} participants to local SQLite")
+                    self._hydrate_local_from_supabase(url, post, participants, all_commenters)
+                    
+                    return participants, last_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list_str
+            except Exception as e:
+                print(f"DEBUG: [Supabase Fallback Error] {e}")
 
         return participants, last_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list_str
+
+    def _hydrate_local_from_supabase(self, url, post, participants, all_commenters):
+        """Supabase 데이터를 로컬 SQLite로 복사"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # Post
+                cursor.execute("""
+                    INSERT OR REPLACE INTO posts (url, title, prizes, memo, winners, last_comment_id, allow_duplicates, allowed_list, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    url, post.get('title'), post.get('prizes'), post.get('memo'), 
+                    post.get('winners'), post.get('last_comment_id'), 
+                    1 if post.get('allow_duplicates') else 0, 
+                    post.get('allowed_list'), post.get('updated_at') or datetime.now().isoformat()
+                ))
+                
+                # Participants
+                for author, v in participants.items():
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO participants (url, author, count, created_at)
+                        VALUES (?, ?, ?, ?)
+                    """, (url, author, v[0], v[1]))
+                
+                # Commenters
+                for c in all_commenters:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO commenters (url, author, created_at)
+                        VALUES (?, ?, ?)
+                    """, (url, c['name'], c['created_at']))
+                
+                conn.commit()
+        except Exception as e:
+            print(f"DEBUG: [Hydration Error] {e}")
 
     def set_active_url(self, url: str):
         with self._get_connection() as conn:
@@ -269,17 +340,43 @@ class CommentDatabase:
             self.supabase.table("posts").upsert({"url": url, "is_active": True}, on_conflict="url").execute()
 
     def get_active_url(self) -> str:
+        # 1. SQLite 확인
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT url FROM posts WHERE is_active = 1 LIMIT 1")
             row = cursor.fetchone()
-            return row[0] if row else None
+            if row:
+                return row[0]
+        
+        # 2. Supabase 확인
+        if self.supabase:
+            try:
+                res = self.supabase.table("posts").select("url").eq("is_active", True).limit(1).execute()
+                if res.data:
+                    return res.data[0]['url']
+            except:
+                pass
+        return None
 
     def get_all_urls(self) -> List[str]:
+        urls = set()
+        # 1. SQLite
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT url FROM posts ORDER BY updated_at DESC")
-            return [row[0] for row in cursor.fetchall()]
+            for row in cursor.fetchall():
+                urls.add(row[0])
+        
+        # 2. Supabase
+        if self.supabase:
+            try:
+                res = self.supabase.table("posts").select("url").execute()
+                for item in res.data:
+                    urls.add(item['url'])
+            except:
+                pass
+        
+        return list(urls)
 
     def delete_participant(self, url: str, author: str):
         with self._get_connection() as conn:

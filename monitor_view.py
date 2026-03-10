@@ -122,6 +122,9 @@ _last_supabase_state = {
     'confirmed_count': -1,     # participants 테이블 수 (확정 명단)
     'title': None,
     'prizes': None,
+    'memo': None,
+    'winners': None,
+    'allowed_list': None,
     'active_url': None,
 }
 _supabase_polling_started = False
@@ -330,11 +333,17 @@ def _supabase_poll_loop():
                     'updated_at': post.get('updated_at'),
                     'title': post.get('title'),
                     'prizes': post.get('prizes'),
+                    'memo': post.get('memo'),
+                    'winners': post.get('winners'),
+                    'allowed_list': post.get('allowed_list'),
                     'active_url': url,
                     'participant_count': total_count,
                     'confirmed_count': confirmed_count,
                 })
                 print(f"DEBUG: [Realtime] Initial state: {total_count} commenters, {confirmed_count} confirmed, title={post.get('title')}")
+                
+                # [추가] 초기 상태 즉시 브로드캐스트 (새로 접속한 클라이언트 대응)
+                _broadcast_current_state()
     except Exception as e:
         print(f"DEBUG: [Realtime] Init error: {e}")
 

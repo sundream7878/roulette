@@ -1,0 +1,17 @@
+# Python logs
+*.log
+monitor_debug.log
+
+# SQLite databases
+*.db
+standalone_comment_monitor/comments.db
+
+# Environments
+.env
+venv/
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode/
+.idea/

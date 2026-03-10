@@ -23,7 +23,15 @@ def retry_supabase(func):
                 if i < max_retries - 1:
                     time.sleep(base_delay * (2 ** i))
                     continue
-                # Supabase 에러는 로그만 남기고 주 흐름(SQLite)을 방해하지 않음
+                
+                # 로그 파일에 에러 상세 기록
+                try:
+                    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    log_file = os.path.join(base_dir, "monitor_debug.log")
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(f"[{datetime.now()}] ERROR: [Supabase Sync Failed] {func.__name__}: {str(e)}\n")
+                except:
+                    pass
                 print(f"DEBUG: [Supabase Sync Skip] {e}")
                 return None
     return wrapper
@@ -197,8 +205,8 @@ class CommentDatabase:
             p_batch = []
             for author, v in participants_dict.items():
                 count = v[0] if isinstance(v, (tuple, list)) else v
-                c_at = v[1] if isinstance(v, (tuple, list)) else None
-                p_batch.append({"url": url, "author": author, "count": count, "created_at": c_at})
+                # Supabase 테이블에 created_at 컬럼이 없어 제외함 (스키마 불일치 해결)
+                p_batch.append({"url": url, "author": author, "count": count})
             for i in range(0, len(p_batch), 500):
                 self.supabase.table("participants").upsert(p_batch[i:i+500], on_conflict="url,author").execute()
 
@@ -206,8 +214,8 @@ class CommentDatabase:
             c_batch = []
             for item in all_commenters:
                 name = item['name'] if isinstance(item, dict) else item
-                c_at = item.get('created_at') if isinstance(item, dict) else None
-                c_batch.append({"url": url, "author": name, "created_at": c_at})
+                # Supabase 테이블에 created_at 컬럼이 없어 제외함 (스키마 불일치 해결)
+                c_batch.append({"url": url, "author": name})
             for i in range(0, len(c_batch), 1000):
                 self.supabase.table("commenters").upsert(c_batch[i:i+1000], on_conflict="url,author").execute()
 

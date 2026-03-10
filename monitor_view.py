@@ -525,10 +525,22 @@ def update_event_settings():
         current_last_id = ''
         current_winners = None
         current_allowed_list = None
+        
         if url in event_states:
             current_last_id = event_states[url].get('last_id', '')
             current_winners = event_states[url].get('winners')
             current_allowed_list = event_states[url].get('allowed_list_str')
+        else:
+            # [수정] 메모리에 상태가 없는 경우 DB에서 직접 조회하여 데이터 유실 방지
+            try:
+                # get_data returns: participants, last_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list_str
+                _, last_id, _, _, _, _, winners, _, allowed_list = db.get_data(url)
+                current_last_id = last_id or ''
+                current_winners = winners
+                current_allowed_list = allowed_list
+                print(f"DEBUG: [Settings] Hydrated state from DB for {url} (winners: {len(winners) if winners else 0} chars)")
+            except Exception as e:
+                print(f"DEBUG: [Settings] Failed to fetch existing data from DB: {e}")
 
         # [수정] 실제 변경 여부 확인하여 무분별한 새로고침 차단
         is_changed = False

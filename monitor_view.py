@@ -276,11 +276,17 @@ def _broadcast_current_state():
             })
 
         p_list = []
+        p_data_for_sync = []
         for r in participants:
             a = r['author']
             v = r['count']
             created_at = r.get('created_at')
             p_list.append((a, v, created_at))
+            p_data_for_sync.append({'author': a, 'count': v, 'created_at': created_at})
+            
+        # [추가] 브로드캐스트 전 로컬 DB 동기화 (Render stale 데이터 방지)
+        db.sync_participants_local(url, p_data_for_sync)
+        db.sync_commenters_local(url, all_commenters_list)
         
         # [중요] 화살표 불일치 방지: 항상 가나다순 정렬
         p_list.sort(key=lambda x: x[0])
@@ -429,6 +435,12 @@ def _supabase_poll_loop():
             # 변경 감지: 댓글 수 OR 확정 참가자 수 OR 설정 변경 시 emit
             commenters_changed = current_total_count != _last_supabase_state['participant_count']
             confirmed_changed = current_confirmed_count != _last_supabase_state['confirmed_count']
+
+            # [추가] 변경 감지 시 로컬 DB 동기화 (Render stale 데이터 방지)
+            if commenters_changed:
+                db.sync_commenters_local(url, all_commenters_list)
+            if confirmed_changed:
+                db.sync_participants_local(url, participants)
 
             if commenters_changed or confirmed_changed or settings_changed:
                 change_reason = []

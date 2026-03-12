@@ -416,6 +416,53 @@ class CommentDatabase:
             conn.commit()
             print(f"DEBUG: [LocalSync] Post data for {url} synchronized to SQLite (Title: {title})")
 
+    def sync_participants_local(self, url: str, participants: list):
+        """Supabase에서 가져온 참여자 목록을 로컬 SQLite에 동기화합니다."""
+        if not url:
+            return
+            
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # 해당 URL의 기존 참여자 삭제 (완전 동기화)
+            cursor.execute("DELETE FROM participants WHERE url = ?", (url,))
+            
+            if participants:
+                # participants는 [{'author': '...', 'count': ..., 'created_at': ...}, ...] 형태라고 가정 (_supabase_poll_loop 기반)
+                for p in participants:
+                    author = p.get('author')
+                    count = p.get('count', 1)
+                    created_at = p.get('created_at')
+                    cursor.execute("""
+                        INSERT INTO participants (url, author, count, created_at)
+                        VALUES (?, ?, ?, ?)
+                    """, (url, author, count, created_at))
+            
+            conn.commit()
+            print(f"DEBUG: [LocalSync] Participants for {url} synchronized to SQLite ({len(participants) if participants else 0} names)")
+
+    def sync_commenters_local(self, url: str, commenters: list):
+        """Supabase에서 가져온 전체 댓글 작성자 목록을 로컬 SQLite에 동기화합니다."""
+        if not url:
+            return
+            
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # 해당 URL의 기존 작성자 삭제 (완전 동기화)
+            cursor.execute("DELETE FROM commenters WHERE url = ?", (url,))
+            
+            if commenters:
+                # commenters는 [{'name': '...', 'created_at': ...}, ...] 형태라고 가정 (_supabase_poll_loop 기반)
+                for c in commenters:
+                    name = c.get('name')
+                    created_at = c.get('created_at')
+                    cursor.execute("""
+                        INSERT INTO commenters (url, author, created_at)
+                        VALUES (?, ?, ?)
+                    """, (url, name, created_at))
+            
+            conn.commit()
+            print(f"DEBUG: [LocalSync] Commenters for {url} synchronized to SQLite ({len(commenters) if commenters else 0} names)")
+
     def get_active_url(self) -> str:
         """현재 활성화된 이벤트 URL을 가져옵니다. (Supabase 우선 순위)"""
         # 1. Supabase 확인 (글로벌 상태 우선)

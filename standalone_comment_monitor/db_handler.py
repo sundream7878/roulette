@@ -220,13 +220,48 @@ class CommentDatabase:
                 self.supabase.table("commenters").upsert(c_batch[i:i+1000], on_conflict="url,author").execute()
 
     def get_data(self, url: str) -> Tuple[Dict, str, List, str, str, str, str, bool, str]:
-        """SQLite에서 데이터 로드 (없으면 Supabase에서 가져오기 시도)"""
+        """Supabase에서 데이터를 먼저 로드하고, 실패 시 SQLite에서 가져옵니다 (Freshness 우선)"""
         participants = {}
         all_commenters = []
         last_id, title, prizes, memo, winners, allowed_list_str = None, None, None, None, '', None
         allow_duplicates = True
 
-        # 1. SQLite 시도
+        # 1. Supabase 시도 (글로벌 상태 우선)
+        if self.supabase:
+            try:
+                # Post 정보 가져오기
+                res = self.supabase.table("posts").select("*").eq("url", url).execute()
+                if res.data:
+                    print(f"DEBUG: [get_data] Fetching fresh data from Supabase for {url}")
+                    post = res.data[0]
+                    last_id = post.get('last_comment_id')
+                    title = post.get('title')
+                    prizes = post.get('prizes')
+                    memo = post.get('memo')
+                    winners = post.get('winners', '')
+                    allow_duplicates = bool(post.get('allow_duplicates', True))
+                    allowed_list_str = post.get('allowed_list')
+
+                    # Participants 가져오기
+                    p_res = self.supabase.table("participants").select("*").eq("url", url).execute()
+                    for p in p_res.data:
+                        participants[p['author']] = (p['count'], p.get('created_at'))
+
+                    # Commenters 가져오기
+                    c_res = self.supabase.table("commenters").select("*").eq("url", url).execute()
+                    for c in c_res.data:
+                        all_commenters.append({'name': c['author'], 'created_at': c.get('created_at')})
+
+                    # SQLite에 캐싱 (Hydration)
+                    self._hydrate_local_from_supabase(url, post, participants, all_commenters)
+                    
+                    return participants, last_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list_str
+                else:
+                    print(f"DEBUG: [get_data] No data found in Supabase for {url}, falling back to SQLite")
+            except Exception as e:
+                print(f"DEBUG: [get_data Supabase Error] {e}, falling back to SQLite")
+
+        # 2. SQLite Fallback (오프라인 또는 Supabase에 정보가 없는 경우)
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -252,43 +287,7 @@ class CommentDatabase:
                 cursor.execute("SELECT author, created_at FROM commenters WHERE url = ?", (url,))
                 for c_row in cursor.fetchall():
                     all_commenters.append({'name': c_row['author'], 'created_at': c_row['created_at']})
-                
-                return participants, last_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list_str
-
-        # 2. SQLite에 데이터가 없고 Supabase가 활성화된 경우 Supabase 시도
-        if self.supabase:
-            print(f"DEBUG: [Supabase Fallback] Fetching data for {url}")
-            try:
-                # Post 정보 가져오기
-                res = self.supabase.table("posts").select("*").eq("url", url).execute()
-                if res.data:
-                    post = res.data[0]
-                    last_id = post.get('last_comment_id')
-                    title = post.get('title')
-                    prizes = post.get('prizes')
-                    memo = post.get('memo')
-                    winners = post.get('winners', '')
-                    allow_duplicates = bool(post.get('allow_duplicates', True))
-                    allowed_list_str = post.get('allowed_list')
-
-                    # Participants 가져오기
-                    p_res = self.supabase.table("participants").select("*").eq("url", url).execute()
-                    for p in p_res.data:
-                        participants[p['author']] = (p['count'], p.get('created_at'))
-
-                    # Commenters 가져오기
-                    c_res = self.supabase.table("commenters").select("*").eq("url", url).execute()
-                    for c in c_res.data:
-                        all_commenters.append({'name': c['author'], 'created_at': c.get('created_at')})
-
-                    # SQLite에 캐싱 (Hydration)
-                    print(f"DEBUG: [Hydration] Saving {len(participants)} participants to local SQLite")
-                    self._hydrate_local_from_supabase(url, post, participants, all_commenters)
-                    
-                    return participants, last_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list_str
-            except Exception as e:
-                print(f"DEBUG: [Supabase Fallback Error] {e}")
-
+            
         return participants, last_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list_str
 
     def _hydrate_local_from_supabase(self, url, post, participants, all_commenters):

@@ -1199,9 +1199,27 @@
                     winnerElement.innerText = '당첨자: ' + data.winner + '님';
                 }
 
-                // start-button 요소는 이미 체크하고 있음
-                if (document.getElementById('start-button')) {
-                    document.getElementById('start-button').disabled = false;
+                // start-button cooldown logic
+                const startButton = document.getElementById('start-button');
+                const targetTimeInput = document.getElementById('target-time');
+                if (startButton) {
+                    startButton.disabled = true;
+                    if (targetTimeInput) targetTimeInput.disabled = true;
+
+                    let cooldown = 10;
+                    startButton.innerText = `대기 중 (${cooldown}초)`;
+
+                    const cooldownInterval = setInterval(() => {
+                        cooldown -= 1;
+                        if (cooldown <= 0) {
+                            clearInterval(cooldownInterval);
+                            startButton.disabled = false;
+                            startButton.innerText = '시작';
+                            if (targetTimeInput) targetTimeInput.disabled = false;
+                        } else {
+                            startButton.innerText = `대기 중 (${cooldown}초)`;
+                        }
+                    }, 1000);
                 }
 
                 // congratulation 요소 null 체크

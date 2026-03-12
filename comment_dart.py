@@ -344,6 +344,7 @@ def index():
 
 # ----- 회전 게임 로직 -----
 games = {}
+last_winner_confirm_times = {} # [추가] 당첨자 확정 후 10초 대기를 위한 타임스탬프 저장
 
 @socketio.on('connect')
 def handle_connect():
@@ -376,6 +377,16 @@ def handle_start_rotation(data):
     """
     print("Received start_rotation with data:", data)
     user_id = current_user.id if current_user.is_authenticated else 'anonymous'
+    
+    # [추가] 당첨자 확정 후 10초 대기 로직 (서버 사이드 방어)
+    active_url = get_active_url()
+    if active_url and active_url in last_winner_confirm_times:
+        elapsed = time.time() - last_winner_confirm_times[active_url]
+        if elapsed < 10:
+            remaining = int(10 - elapsed)
+            print(f"DEBUG: Cooldown active for {active_url}. {remaining}s left.")
+            socketio.emit('error', {'message': f'당첨자 발표 후 재설정까지 대기 시간이 필요합니다. ({remaining}초 남음)'}, namespace='/')
+            return
     
     # 기존 게임 정보 초기화 또는 신규 생성
     if user_id not in games:
@@ -622,6 +633,14 @@ def handle_confirm_winner(data=None):
         # 당첨자 정보 전송
         socketio.emit('update_winner', {'winner': winner}, namespace='/')
         socketio.emit('play_fanfare', namespace='/')
+
+        # [추가] 당첨자 확정 타임스탬프 저장 (10초 대기 로직용)
+        try:
+            active_url = normalize_url(data.get('url')) if data.get('url') else get_active_url()
+            if active_url:
+                last_winner_confirm_times[active_url] = time.time()
+                print(f"DEBUG: Recorded last_winner_confirm_time for {active_url}")
+        except: pass
     else:
         # 게임 정보가 없거나 당첨자가 설정되지 않은 경우 오류 메시지 전송
         print("ERROR: 당첨자 정보를 찾을 수 없음")

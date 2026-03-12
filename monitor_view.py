@@ -245,7 +245,10 @@ def _broadcast_current_state():
         allowed_list_str = post.get('allowed_list')
         updated_at = post.get('updated_at')
 
-        # 이벤트 설정 브로드캐스트
+        # [추가] 브로드캐스트 전 로컬 DB 동기화 (Render stale 데이터 방지)
+        post['is_active'] = True
+        db.sync_post_data_local(url, post)
+
         socketio.emit('update_event_settings', {
             'url': url, 'title': title, 'prizes': prizes, 'memo': memo, 'winners': winners, 'allowed_list': allowed_list_str
         })
@@ -390,10 +393,16 @@ def _supabase_poll_loop():
             if settings_changed:
                 print(f"DEBUG: [Realtime] Settings changed! Broadcasting...")
                 
-                # [추가] 글로벌 활성 URL이 변경된 경우 로컬 상태도 동기화 (Render 등 분산 환경 대응)
                 if url != _last_supabase_state['active_url']:
                     print(f"DEBUG: [Realtime] Active URL changed to {url}. Syncing local state...")
-                    db.set_active_url_local_only(url)
+                    # [수정] 단순 URL 변경 대신 전체 데이터 동기화
+                    post['is_active'] = True
+                    db.sync_post_data_local(url, post)
+                else:
+                    # 동일 URL이지만 설정이 바뀐 경우
+                    print(f"DEBUG: [Realtime] Settings updated for {url}. Syncing local state...")
+                    post['is_active'] = True
+                    db.sync_post_data_local(url, post)
 
                 socketio.emit('update_event_settings', {
                     'url': url, 'title': title, 'prizes': prizes, 'memo': memo, 'winners': winners, 'allowed_list': allowed_list_str
@@ -709,10 +718,10 @@ def fetch_comments_route():
         print(f"DEBUG: Event {event_id} - Extracted {len(existing_participants)} participants")
         
         # [추가] 명단 동기화 (화이트리스트 업데이트 반영)
-        existing_participants, _ = sync_participants_with_whitelist(url, existing_participants, all_commenters)
+        existing_participants, whitelist_updated = sync_participants_with_whitelist(url, existing_participants, all_commenters)
         
-        # [최적화] 실시간 새로고침 무한 루프 방지: 새 댓글이 있거나 전체 수집(Full Scan)일 때만 DB 동기화
-        if comments or not incremental:
+        # [최적화] 실시간 새로고침 무한 루프 방지: 새 댓글이 있거나, 화이트리스트 동기화로 명단이 변했거나, 전체 수집(Full Scan)일 때만 DB 동기화
+        if comments or whitelist_updated or not incremental:
             # 활성 URL 설정 (URL이 바뀐 경우에만 DB 반영됨)
             set_active_url(url)
             
@@ -723,7 +732,7 @@ def fetch_comments_route():
                          title=current_state.get('title'), prizes=current_state.get('prizes'),
                          memo=current_state.get('memo'), winners=current_state.get('winners'),
                          allow_duplicates=current_state.get('allow_duplicates'))
-            print(f"DEBUG: [Fetch] DB Sync completed (Full settings sync for {url})")
+            print(f"DEBUG: [Fetch] DB Sync completed (New comments: {bool(comments)}, Whitelist updated: {whitelist_updated})")
         else:
             # 새 댓글이 없는 점진적 수집(Polling)인 경우, 활성 URL만 메모리에 설정
             set_active_url(url)
@@ -988,7 +997,13 @@ def load_comments():
             return jsonify({'message': '저장된 데이터가 없습니다.', 'participants': [], 'url': url})
 
         # [추가] 명단 동기화 (화이트리스트 업데이트 반영)
-        participants_dict, _ = sync_participants_with_whitelist(url, participants_dict, all_commenter_list)
+        participants_dict, whitelist_updated = sync_participants_with_whitelist(url, participants_dict, all_commenter_list)
+        
+        if whitelist_updated:
+            print(f"DEBUG: [Load] Whitelist promotion detected, force saving to Supabase for {url}")
+            db.save_data(url, participants_dict, last_id, list(all_commenter_list),
+                         title=title, prizes=prizes, memo=memo, winners=winners, 
+                         allow_duplicates=allow_duplicates)
         
         # [수정] 활성 URL 설정 (새로고침 루프 방지를 위해 타임스탬프 갱신 제거)
         set_active_url(url)
@@ -1185,8 +1200,33 @@ def api_save_allowed_list():
     url = normalize_url(data.get('url', ''))
     try:
         if url:
-            # DB에 저장하면서 실시간 동기화
+            # 1. DB에 저장을 먼저 수행 (get_allowed_list가 DB를 보므로)
             db.save_data(url, None, None, allowed_list=content)
+            
+            # 2. [추가] 즉시 명단 업데이트 및 동기화 (수동 수집 버튼 안 눌러도 반영되도록)
+            if url in event_states:
+                state = event_states[url]
+                existing_p = state.get('participants', {})
+                all_c = state.get('all_commenters', [])
+                
+                # 명단 동기화 실행
+                updated_p, updated = sync_participants_with_whitelist(url, existing_p, all_c)
+                
+                if updated:
+                    print(f"DEBUG: [WhitelistSave] Participants promoted, force saving to Supabase")
+                    db.save_data(url, updated_p, state.get('last_id'), list(all_c),
+                                 title=state.get('title'), prizes=state.get('prizes'),
+                                 memo=state.get('memo'), winners=state.get('winners'),
+                                 allow_duplicates=state.get('allow_duplicates'))
+                    
+                    # 소켓 브로드캐스트 (실시간 UI 반영)
+                    from comment_dart import socketio
+                    socketio.emit('update_participants', {
+                        'participants': [(n, c[0], c[1]) for n, c in updated_p.items()],
+                        'total_comments': len(all_c),
+                        'event_id': url
+                    })
+            
             return jsonify({'message': '명단이 DB에 저장되었습니다.'})
         
         with open(ALLOWED_LIST_FILE, 'w', encoding='utf-8') as f:

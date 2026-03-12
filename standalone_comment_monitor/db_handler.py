@@ -370,6 +370,52 @@ class CommentDatabase:
             conn.commit()
             print(f"DEBUG: [LocalSync] Local active URL synchronized to: {url}")
 
+    def sync_post_data_local(self, url: str, post_data: dict):
+        """Supabase에서 가져온 포스트 데이터를 로컬 SQLite에 강제 동기화합니다. (캐시 무결성 유지)"""
+        if not url or not post_data:
+            return
+            
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # 1. 기존 게시물이 있는지 확인
+            cursor.execute("SELECT url FROM posts WHERE url = ?", (url,))
+            exists = cursor.fetchone()
+            
+            # 필드 매핑 및 변환
+            title = post_data.get('title')
+            prizes = post_data.get('prizes')
+            memo = post_data.get('memo')
+            winners = post_data.get('winners')
+            last_comment_id = post_data.get('last_comment_id')
+            allowed_list = post_data.get('allowed_list')
+            updated_at = post_data.get('updated_at') or datetime.now().isoformat()
+            # allow_duplicates handles
+            allow_duplicates = 1 if post_data.get('allow_duplicates') else 0
+            if post_data.get('allow_duplicates') is None:
+                # None인 경우 기본값 1 유지
+                allow_duplicates = 1
+            
+            is_active = 1 if post_data.get('is_active') else 0
+            
+            if exists:
+                # UPDATE
+                cursor.execute("""
+                    UPDATE posts 
+                    SET title=?, prizes=?, memo=?, winners=?, last_comment_id=?, 
+                        allow_duplicates=?, allowed_list=?, updated_at=?, is_active=?
+                    WHERE url=?
+                """, (title, prizes, memo, winners, last_comment_id, 
+                      allow_duplicates, allowed_list, updated_at, is_active, url))
+            else:
+                # INSERT
+                cursor.execute("""
+                    INSERT INTO posts (url, title, prizes, memo, winners, last_comment_id, allow_duplicates, allowed_list, updated_at, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (url, title, prizes, memo, winners, last_comment_id, allow_duplicates, allowed_list, updated_at, is_active))
+            
+            conn.commit()
+            print(f"DEBUG: [LocalSync] Post data for {url} synchronized to SQLite (Title: {title})")
+
     def get_active_url(self) -> str:
         """현재 활성화된 이벤트 URL을 가져옵니다. (Supabase 우선 순위)"""
         # 1. Supabase 확인 (글로벌 상태 우선)

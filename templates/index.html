@@ -58,15 +58,18 @@
         }
 
         #memo-container {
-            margin-left: 40px;
             padding: 20px;
             background: white;
             border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            min-width: 220px;
+            min-width: 0;
             text-align: left;
             border: 1px solid #e0e0e0;
-            margin-top: 16px;
+            margin: 0;
+            flex: 1 1 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
 
         #memo-container h3 {
@@ -83,6 +86,13 @@
             line-height: 1.6;
         }
 
+        #memo-content-scroll {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
         .memo-policy {
             font-size: 0.92em;
             font-weight: 700;
@@ -95,14 +105,18 @@
         }
 
         #prize-container {
-            margin-left: 40px;
             padding: 20px;
             background: white;
             border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            min-width: 220px;
+            min-width: 0;
             text-align: left;
             border: 1px solid #e0e0e0;
+            margin: 0;
+            flex: 1 1 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
 
         #prize-container h3 {
@@ -110,6 +124,13 @@
             color: #4CAF50;
             border-bottom: 2px solid #4CAF50;
             padding-bottom: 10px;
+        }
+
+        #prize-list {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            padding-right: 4px;
         }
 
         .prize-item {
@@ -160,6 +181,16 @@
             padding: 20px;
             max-width: 1600px;
             width: 100%;
+        }
+
+        #prize-right-col {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-left: 40px;
+            width: 320px;
+            min-width: 300px;
+            height: 600px;
         }
 
         #chart-container {
@@ -807,7 +838,7 @@
         </div>
 
         <!-- 사은품 목록 (오른쪽으로 이동) -->
-        <div id="prize-right-col" style="display:flex; flex-direction:column; gap:0;">
+        <div id="prize-right-col">
             <div id="prize-container">
                 <h3>🎁 사은품 목록</h3>
                 <div id="prize-list">
@@ -832,8 +863,10 @@
             <!-- 메모 카드 -->
             <div id="memo-container">
                 <h3>📌 공지 / 메모</h3>
-                <div class="memo-policy" id="memo-policy">{% if allow_duplicates_dash %}옵션 : 금일 이벤트는 중복당첨 가능합니다.{% else %}옵션 : 금일 이벤트는 중복당첨 없음{% endif %}</div>
-                <div class="memo-text" id="memo-text">{{ memo or '' }}</div>
+                <div id="memo-content-scroll">
+                    <div class="memo-policy" id="memo-policy">{% if allow_duplicates_dash %}옵션 : 금일 이벤트는 중복당첨 가능합니다.{% else %}옵션 : 금일 이벤트는 중복당첨 없음{% endif %}</div>
+                    <div class="memo-text" id="memo-text">{{ memo or '' }}</div>
+                </div>
             </div>
         </div>
     </div>

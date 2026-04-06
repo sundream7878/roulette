@@ -20,7 +20,7 @@ def debug_check():
             print("No URLs found in DB.")
             return
 
-    p, last_id, all_c, title, prizes, memo, winners, allow_dup, allowed_list = db.get_data(active_url)
+    p, last_id, all_c, title, prizes, memo, winners, allow_dup, allowed_list, _ = db.get_data(active_url)
     
     print(f"\n--- Data for {active_url} ---")
     print(f"Title: {title}")

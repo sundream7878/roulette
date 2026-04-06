@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>썬드림 게시글+댓글 룰렛추첨 이벤트</title>
+    <title>썬드림 룰렛 추첨 이벤트</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body {
@@ -38,6 +38,22 @@
             font-weight: 800;
         }
 
+        .header-title-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            justify-content: center;
+            gap: 12px;
+            max-width: 100%;
+        }
+
+        #header .header-event-at {
+            font-size: 0.95rem;
+            font-weight: 600;
+            opacity: 0.92;
+            white-space: nowrap;
+        }
+
         #memo-container {
             margin-left: 40px;
             padding: 20px;
@@ -62,6 +78,17 @@
             font-size: 0.95em;
             color: #444;
             line-height: 1.6;
+        }
+
+        .memo-policy {
+            font-size: 0.92em;
+            font-weight: 700;
+            color: #1565c0;
+            background: #e3f2fd;
+            border-left: 4px solid #1e88e5;
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 10px;
         }
 
         #prize-container {
@@ -515,13 +542,136 @@
                 transform: scale(1.03);
             }
         }
+
+        #operator-dashboard-wrap {
+            max-width: 960px;
+            width: calc(100% - 40px);
+            margin: 24px auto 40px;
+            padding: 24px;
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        #operator-dashboard-wrap h2 {
+            margin: 0 0 16px 0;
+            font-size: 1.25rem;
+            color: #2e7d32;
+        }
+
+        .op-row {
+            margin-bottom: 14px;
+        }
+
+        .op-row label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #333;
+        }
+
+        .op-row input[type="text"],
+        .op-row textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        .op-row textarea {
+            min-height: 100px;
+            font-family: inherit;
+        }
+
+        #op-allowed-list {
+            min-height: 180px;
+        }
+
+        .op-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+            align-items: center;
+        }
+
+        .op-actions button,
+        .op-actions label.file-btn {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .op-btn-save {
+            background: #4CAF50;
+            color: #fff;
+        }
+
+        .op-btn-new {
+            background: #1565c0;
+            color: #fff;
+        }
+
+        .op-btn-load {
+            background: #6d4c41;
+            color: #fff;
+        }
+
+        .file-btn {
+            background: #78909c;
+            color: #fff;
+            display: inline-block;
+        }
+
+        .file-btn input {
+            display: none;
+        }
+
+        #op-status {
+            margin-top: 12px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        #op-event-history {
+            width: 100%;
+            max-width: 100%;
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+        }
+
+        .op-id-badge {
+            display: inline-block;
+            margin-left: 10px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #1565c0;
+            vertical-align: middle;
+        }
+
+        .op-btn-register {
+            background: #6a1b9a;
+            color: #fff;
+        }
     </style>
     <link rel="icon" href="data:,">
 </head>
 
 <body>
     <div id="header">
-        <h1 id="event-title-display">{{ title if title else '썬드림 카페 댓글 추첨 이벤트' }}</h1>
+        <div class="header-title-row">
+            <h1 id="event-title-display">{{ title if title else '썬드림 룰렛 추첨 이벤트' }}</h1>
+            {% if event_at_display is defined and event_at_display %}
+            <span class="header-event-at" id="header-event-at">일시: {{ event_at_display }}</span>
+            {% endif %}
+        </div>
         {% if user.is_authenticated %}
         <a href="{{ url_for('logout') }}" id="logout">로그아웃</a>
         {% endif %}
@@ -533,6 +683,7 @@
             <div class="time-control-item">
                 <span class="time-label">슈팅시간 설정:</span>
                 <input type="text" id="target-time" placeholder="HH:MM:SS" value="">
+                <button id="plus-minute-button" type="button">+1분</button>
                 <button id="start-button" onclick="startRotation()">시작</button>
             </div>
             <div class="time-control-item">
@@ -585,14 +736,7 @@
         <!-- 전체 명단 (사전 참여 명단) -->
         <div id="all-participants-container">
             <div style="margin-bottom: 6px;">
-                <strong>📋 전체 명단</strong>
-                <span id="confirmed-count-header" style="font-size:0.85em; color:#888;">
-                    (확정: <span id="conf-num">{{ confirmed_names | length if confirmed_names else 0 }}</span>/{{
-                    allowed_info | length if allowed_info else 0 }}명)
-                </span>
-            </div>
-            <div style="font-size: 0.75em; color: #666; margin-bottom: 8px; padding-left: 5px;">
-                ( 💡 이름 앞에 ✅ 표시가 있는 분들이 확정된 명단입니다. )
+                <strong>📋 참가명단 (티켓 수)</strong>
             </div>
             {% if allowed_info %}
             {% set ns_sep = namespace(separator_shown=false) %}
@@ -643,32 +787,293 @@
             </div>
 
             <!-- 메모 카드 -->
-            {% if memo %}
             <div id="memo-container">
                 <h3>📌 공지 / 메모</h3>
-                <div class="memo-text" id="memo-text">{{ memo }}</div>
+                <div class="memo-policy" id="memo-policy">{% if allow_duplicates_dash %}옵션 : 금일 이벤트는 중복당첨 가능합니다.{% else %}옵션 : 금일 이벤트는 중복당첨 없음{% endif %}</div>
+                <div class="memo-text" id="memo-text">{{ memo or '' }}</div>
             </div>
-            {% else %}
-            <div id="memo-container" style="display:none;">
-                <h3>📌 공지 / 메모</h3>
-                <div class="memo-text" id="memo-text"></div>
-            </div>
-            {% endif %}
         </div>
     </div>
+
+    {% if user and user.is_authenticated %}
+    <div id="operator-dashboard-wrap">
+        <h2>운영자 대시보드 · 이벤트 / 명단 / 사은품</h2>
+        <p style="color:#666;font-size:0.9em;margin:0 0 16px;">명단: 한 줄에 <strong>별명 숫자</strong> 또는 CSV(별명,숫자). <strong>새 이벤트로 등록</strong>은 DB에 쓰지 않고 폼만 비우고 새 ID만 잡습니다. 실제 반영은 맨 아래 <strong>저장</strong> 한 번(수정도 동일)입니다. <strong>히스토리</strong>는 지난 회차 불러오기, <strong>일시</strong>는 상단 제목 옆 표시에 쓰입니다.</p>
+        <input type="hidden" id="op-event-key" value="{{ current_url or '' }}" />
+        <div class="op-row" style="margin-top:16px">
+            <label>새 이벤트로 등록 <span style="font-weight:400;color:#888">(폼 초기화·새 ID만, 저장 시 DB 반영)</span></label>
+            <div style="margin-top:8px;">
+                <button type="button" class="op-btn-register" onclick="opRegisterNew()">새 이벤트로 등록</button>
+            </div>
+        </div>
+        <div class="op-row" style="margin-top:20px">
+            <label>히스토리에서 선택 <span style="font-weight:400;color:#888">(선택 즉시 활성화)</span></label>
+            <select id="op-event-history" size="7"></select>
+        </div>
+        <div class="op-row">
+            <label>이벤트 일시 <span style="font-weight:400;color:#888">(상단 제목 옆에 표시)</span></label>
+            <input type="datetime-local" id="op-event-at" value="{{ event_at_input_value if event_at_input_value is defined else '' }}" />
+        </div>
+        <div class="op-row">
+            <label>이벤트 제목 <span id="op-id-badge" class="op-id-badge">이벤트 ID · —</span></label>
+            <input type="text" id="op-title" value="{{ title or '' }}" />
+        </div>
+        <div class="op-row">
+            <label>사은품 목록 (줄마다 1개)</label>
+            <textarea id="op-prizes">{{ prizes or '' }}</textarea>
+        </div>
+        <div class="op-row">
+            <label>공지 / 메모</label>
+            <textarea id="op-memo">{{ memo or '' }}</textarea>
+        </div>
+        <div class="op-row">
+            <label><input type="checkbox" id="op-allow-dup" {% if allow_duplicates_dash %}checked{% endif %} /> 중복 당첨 허용</label>
+        </div>
+        <div class="op-row">
+            <label>참가 명단 (별명 + 티켓 수)</label>
+            <textarea id="op-allowed-list">{{ allowed_list_text or '' }}</textarea>
+        </div>
+        <div class="op-actions">
+            <button type="button" class="op-btn-save" onclick="opSave()">저장</button>
+            <label class="file-btn">CSV 업로드<input type="file" id="op-csv" accept=".csv,text/csv" onchange="opCsv(this.files[0])" /></label>
+        </div>
+        <div id="op-status"></div>
+    </div>
+    <script>
+    (function () {
+        var opActiveKey = {{ (current_url or '')|tojson }};
+        window.rouletteActiveKey = (typeof opActiveKey === 'string') ? opActiveKey : '';
+        /** true: 「새 이벤트로 등록」 직후~저장 전. RT/소켓 자동 새로고침이 폼을 덮어쓰지 않도록 함 */
+        window._operatorDraftMode = false;
+
+        function opSetStatus(t, err) {
+            var el = document.getElementById('op-status');
+            if (el) { el.textContent = t; el.style.color = err ? '#c62828' : '#2e7d32'; }
+        }
+        function opFormatApiError(d, fallback) {
+            if (!d) return fallback || '';
+            var m = (d.error && String(d.error)) || (fallback || '');
+            if (d.detail) m += ' — ' + String(d.detail).slice(0, 200);
+            return m;
+        }
+        function opReloadAfterOperatorCommit() {
+            setTimeout(function () { window.location.reload(); }, 450);
+        }
+        function opEventAtToLocalValue(iso) {
+            if (!iso) return '';
+            var s = String(iso).replace('Z', '').split('+')[0].trim();
+            if (s.indexOf(' ') >= 0 && s.indexOf('T') < 0) s = s.replace(' ', 'T');
+            if (s.length >= 16) return s.slice(0, 16);
+            if (s.length >= 10) return s.slice(0, 10) + 'T12:00';
+            return '';
+        }
+        function opDisplayEventKey(key) {
+            var raw = (key || '').trim();
+            if (!raw) return '—';
+            if (/^\d{10}$/.test(raw)) return raw;
+            var m = raw.match(/\/articles\/(\d+)/);
+            if (m && m[1]) return 'legacy-' + m[1];
+            return raw.length > 24 ? raw.slice(0, 24) + '...' : raw;
+        }
+        function opApplySavedKey(d) {
+            window._operatorDraftMode = false;
+            var key = (d && d.event_key) ? d.event_key : '';
+            var hid = document.getElementById('op-event-key');
+            if (hid) hid.value = key;
+            opActiveKey = key;
+            window.rouletteActiveKey = key;
+            var badge = document.getElementById('op-id-badge');
+            if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(key);
+            var tit = document.getElementById('op-title');
+            var h1 = document.getElementById('event-title-display');
+            if (h1 && tit) h1.textContent = tit.value || h1.textContent;
+            opRefreshHistory({ skipEmptyStatus: true });
+        }
+        function opApplySelectPayload(d) {
+            window._operatorDraftMode = false;
+            var key = d.event_key || '';
+            var hid = document.getElementById('op-event-key');
+            if (hid) hid.value = key;
+            opActiveKey = key;
+            window.rouletteActiveKey = key;
+            var badge = document.getElementById('op-id-badge');
+            if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(key);
+            document.getElementById('op-title').value = d.title || '';
+            document.getElementById('op-prizes').value = d.prizes || '';
+            document.getElementById('op-memo').value = d.memo || '';
+            document.getElementById('op-allow-dup').checked = !!d.allow_duplicates;
+            document.getElementById('op-allowed-list').value = d.allowed_list_text || '';
+            var eat = document.getElementById('op-event-at');
+            if (eat) eat.value = opEventAtToLocalValue(d.event_at || '');
+            var h1 = document.getElementById('event-title-display');
+            if (h1) h1.textContent = d.title || '';
+            opRefreshHistory({ skipEmptyStatus: true });
+            opSetStatus('히스토리에서 다른 이벤트로 전환했습니다.', false);
+        }
+        function opFormToBody() {
+            return {
+                event_key: (document.getElementById('op-event-key') || {}).value || '',
+                event_at: (document.getElementById('op-event-at') || {}).value || '',
+                title: document.getElementById('op-title').value,
+                prizes: document.getElementById('op-prizes').value,
+                memo: document.getElementById('op-memo').value,
+                allow_duplicates: document.getElementById('op-allow-dup').checked,
+                allowed_list_text: document.getElementById('op-allowed-list').value
+            };
+        }
+        window.opSave = function () {
+            opSetStatus('저장 중...');
+            fetch('/api/operator/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(opFormToBody()) })
+                .then(function (r) {
+                    return r.json().then(function (d) {
+                        if (!r.ok) {
+                            opSetStatus(opFormatApiError(d, '요청 실패 (' + r.status + ')'), true);
+                            return;
+                        }
+                        if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
+                        opApplySavedKey(d);
+                        opSetStatus('저장했습니다.', false);
+                        opReloadAfterOperatorCommit();
+                    });
+                })
+                .catch(function (e) { opSetStatus('오류: ' + e, true); });
+        };
+        window.opRegisterNew = function () {
+            if (!confirm('새 이벤트 작성 칸을 준비할까요?\n현재 입력 내용은 초기화됩니다.')) return;
+            opSetStatus('새 이벤트 준비 중...');
+            var body = {
+                event_at: (document.getElementById('op-event-at') || {}).value || ''
+            };
+            fetch('/api/operator/register_new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) })
+                .then(function (r) {
+                    return r.json().then(function (d) {
+                        if (!r.ok) {
+                            opSetStatus(opFormatApiError(d, '등록 실패 (' + r.status + ')'), true);
+                            return;
+                        }
+                        if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
+                        var key = d.event_key || '';
+                        var hid = document.getElementById('op-event-key');
+                        if (hid) hid.value = key;
+                        opActiveKey = key;
+                        window.rouletteActiveKey = key;
+                        var badge = document.getElementById('op-id-badge');
+                        if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(key);
+                        document.getElementById('op-title').value = '';
+                        document.getElementById('op-prizes').value = '';
+                        document.getElementById('op-memo').value = '';
+                        document.getElementById('op-allow-dup').checked = true;
+                        document.getElementById('op-allowed-list').value = '';
+                        var eat = document.getElementById('op-event-at');
+                        if (eat) eat.value = opEventAtToLocalValue(d.event_at || '');
+                        var h1 = document.getElementById('event-title-display');
+                        if (h1) h1.textContent = '';
+                        window._operatorDraftMode = true;
+                        opRefreshHistory({ skipEmptyStatus: true });
+                        opSetStatus('새 이벤트 작성 준비 완료. 내용을 입력한 뒤 저장하세요.', false);
+                    });
+                })
+                .catch(function (e) { opSetStatus('오류: ' + e, true); });
+        };
+        window.opCsv = function (file) {
+            if (!file) return;
+            var fd = new FormData(); fd.append('file', file);
+            opSetStatus('CSV 처리 중...');
+            fetch('/api/operator/upload_csv', { method: 'POST', credentials: 'same-origin', body: fd })
+                .then(function (r) { return r.json(); }).then(function (d) {
+                    if (d.error) { opSetStatus(d.error, true); return; }
+                    document.getElementById('op-allowed-list').value = d.allowed_list_text || '';
+                    opSetStatus('명단에 반영했습니다 (' + (d.count || 0) + '명). 맨 아래 저장으로 반영하세요.');
+                    document.getElementById('op-csv').value = '';
+                }).catch(function (e) { opSetStatus('오류: ' + e, true); });
+        };
+        function opRefreshHistory(opts) {
+            opts = opts || {};
+            fetch('/api/operator/events?limit=50', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+                var sel = document.getElementById('op-event-history');
+                if (!sel) return;
+                // 신규 작성 모드에서는 히스토리 선택/활성 표시를 숨겨
+                // '저장 전 임시 상태'임을 명확히 보여준다.
+                var isDraftMode = !!window._operatorDraftMode;
+                if (!d.events || !d.events.length) {
+                    // 조회 실패/일시 공백 시 기존 히스토리 목록은 유지
+                    if (!opts.skipEmptyStatus && !sel.options.length) {
+                        opSetStatus('저장된 이벤트가 없습니다. 폼을 작성한 뒤 저장하거나 새 이벤트로 등록하세요.', false);
+                    }
+                    if (isDraftMode) sel.selectedIndex = -1;
+                    return;
+                }
+                sel.innerHTML = '';
+                var activeRow = d.events.filter(function (e) { return e.is_active; })[0];
+                var preferred = isDraftMode ? '' : (opActiveKey || (activeRow && (activeRow.id || activeRow.url)) || '');
+                var anySel = false;
+                d.events.forEach(function (ev) {
+                    var opt = document.createElement('option');
+                    var evKey = ev.id || ev.url || '';
+                    opt.value = evKey;
+                    var id = (evKey || '').slice(0, 32);
+                    var t = (ev.title || '(제목 없음)').slice(0, 40);
+                    var dt = (ev.updated_at || '').replace('T', ' ').slice(0, 16);
+                    opt.textContent = id + ' · ' + t + ' · ' + dt + ((!isDraftMode && ev.is_active) ? ' ★' : '');
+                    if (preferred && evKey === preferred) {
+                        opt.selected = true;
+                        anySel = true;
+                    }
+                    sel.appendChild(opt);
+                });
+                if (isDraftMode) {
+                    sel.selectedIndex = -1;
+                    return;
+                }
+                if (!anySel && sel.options.length) sel.options[0].selected = true;
+            }).catch(function () { opSetStatus('이벤트 목록을 불러오지 못했습니다.', true); });
+        }
+        function opBindHistorySelect() {
+            var sel = document.getElementById('op-event-history');
+            if (!sel) return;
+            sel.addEventListener('change', function () {
+                var v = this.value;
+                if (!v) return;
+                if (v === opActiveKey) return;
+                opSetStatus('선택한 이벤트로 전환 중...');
+                fetch('/api/operator/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ event_key: v }) })
+                    .then(function (r) { return r.json(); }).then(function (d) {
+                        if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
+                        opApplySelectPayload(d);
+                        opReloadAfterOperatorCommit();
+                    }).catch(function (e) { opSetStatus('오류: ' + e, true); });
+            });
+        }
+        opRefreshHistory();
+        opBindHistorySelect();
+        (function initBadge() {
+            var badge = document.getElementById('op-id-badge');
+            if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(opActiveKey || '');
+        })();
+    })();
+    </script>
+    {% endif %}
 
     <!-- Chart.js + DataLabels 플러그인 + Socket.IO 클라이언트 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.1/dist/socket.io.min.js"></script>
     <script>
-        const currentUrl = '{{ current_url }}';
+        if (typeof window.rouletteActiveKey !== 'string') {
+            window.rouletteActiveKey = '{{ current_url or "" }}';
+        }
+        function rouletteLiveKey() {
+            return (typeof window.rouletteActiveKey === 'string') ? window.rouletteActiveKey : '';
+        }
         const socket = io();
         let chart;
         let countdownInterval = null;
         let targetDateTime = null;
         let gameIsActive = false; // 전역 선언 추가
         window._gameIsActive = false; // Supabase RT용 선언 초기화
+        let memoPolicyAllowDuplicates = {% if allow_duplicates_dash %}true{% else %}false{% endif %};
+        let startRequestInFlight = false;
+        let startRequestTimeout = null;
 
         // 오디오 관련 변수
         let beepSound = null;
@@ -897,24 +1302,80 @@
             }
         }
 
+        function renderMemoWithPolicy(memoText, allowDuplicates) {
+            const policyEl = document.getElementById('memo-policy');
+            const memoEl = document.getElementById('memo-text');
+            const memoContainer = document.getElementById('memo-container');
+            if (!policyEl || !memoEl || !memoContainer) return;
+            const allow = (allowDuplicates === undefined || allowDuplicates === null)
+                ? memoPolicyAllowDuplicates
+                : !!allowDuplicates;
+            memoPolicyAllowDuplicates = allow;
+            const policyLine = allow ? '옵션 : 금일 이벤트는 중복당첨 가능합니다.' : '옵션 : 금일 이벤트는 중복당첨 없음';
+            const body = (memoText || '').trim();
+            policyEl.textContent = policyLine;
+            memoEl.textContent = body;
+            memoContainer.style.display = '';
+        }
+
         // 시작 버튼 클릭 함수
+        function addOneMinuteToTargetTime() {
+            const input = document.getElementById('target-time');
+            if (!input) return;
+            if (input.disabled) return;
+            const v = (input.value || '').trim();
+            const timePattern = /^([0-1][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])$/;
+            const base = new Date();
+            if (timePattern.test(v)) {
+                const parts = v.split(':').map(Number);
+                base.setHours(parts[0], parts[1], parts[2], 0);
+            }
+            base.setSeconds(base.getSeconds() + 60);
+            const hh = base.getHours().toString().padStart(2, '0');
+            const mm = base.getMinutes().toString().padStart(2, '0');
+            const ss = base.getSeconds().toString().padStart(2, '0');
+            input.value = `${hh}:${mm}:${ss}`;
+            console.log('[+1분] target-time:', input.value);
+        }
+        window.addOneMinuteToTargetTime = addOneMinuteToTargetTime;
+
         function startRotation() {
             console.log('시작 버튼 클릭됨');
-            document.getElementById('start-button').disabled = true;
+            const startBtn = document.getElementById('start-button');
+            const plusBtn = document.getElementById('plus-minute-button');
+            if (!startBtn) return;
+            if (startRequestInFlight) {
+                console.log('시작 요청 처리 중 - 중복 클릭 무시');
+                return;
+            }
+            if (!socket || !socket.connected) {
+                alert('서버 연결이 끊겨 시작할 수 없습니다. 잠시 후 다시 시도해주세요.');
+                return;
+            }
+            startRequestInFlight = true;
+            startBtn.disabled = true;
+            startBtn.innerText = '시작 요청 중...';
+            if (plusBtn) plusBtn.disabled = true;
 
             stopAllSounds();
 
             const timeInput = document.getElementById('target-time').value;
             if (!timeInput) {
                 alert('시간을 입력해주세요.');
-                document.getElementById('start-button').disabled = false;
+                startRequestInFlight = false;
+                startBtn.disabled = false;
+                startBtn.innerText = '시작';
+                if (plusBtn) plusBtn.disabled = false;
                 return;
             }
 
             const timePattern = /^([0-1][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])$/;
             if (!timePattern.test(timeInput)) {
                 alert('시간 형식은 HH:MM:SS여야 합니다. (예: 15:30:00)');
-                document.getElementById('start-button').disabled = false;
+                startRequestInFlight = false;
+                startBtn.disabled = false;
+                startBtn.innerText = '시작';
+                if (plusBtn) plusBtn.disabled = false;
                 return;
             }
 
@@ -932,10 +1393,29 @@
 
             console.log('Emitting start_rotation with UTC time:', formattedTime);
             socket.emit('start_rotation', { time: formattedTime });
+            if (startRequestTimeout) clearTimeout(startRequestTimeout);
+            startRequestTimeout = setTimeout(function () {
+                if (!startRequestInFlight) return;
+                console.warn('start_rotation 응답 지연 - 버튼 복구');
+                startRequestInFlight = false;
+                const btn = document.getElementById('start-button');
+                const plus = document.getElementById('plus-minute-button');
+                const targetTimeInput = document.getElementById('target-time');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = '시작';
+                }
+                if (plus) plus.disabled = false;
+                if (targetTimeInput) targetTimeInput.disabled = false;
+            }, 5000);
         }
 
         window.onload = function () {
             console.log("페이지 로드 완료");
+            const plusBtnOnLoad = document.getElementById('plus-minute-button');
+            if (plusBtnOnLoad) {
+                plusBtnOnLoad.addEventListener('click', addOneMinuteToTargetTime);
+            }
 
             stopAllSounds();
 
@@ -1009,14 +1489,37 @@
 
             socket.on('disconnect', function () {
                 console.log('서버와 연결이 끊어졌습니다.');
+                startRequestInFlight = false;
+                if (startRequestTimeout) {
+                    clearTimeout(startRequestTimeout);
+                    startRequestTimeout = null;
+                }
+                const btn = document.getElementById('start-button');
+                const plus = document.getElementById('plus-minute-button');
+                const targetTimeInput = document.getElementById('target-time');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = '시작';
+                }
+                if (plus) plus.disabled = false;
+                if (targetTimeInput) targetTimeInput.disabled = false;
             });
 
             socket.on('start_game', function (data) {
                 console.log('게임 시작:', data);
+                startRequestInFlight = false;
+                if (startRequestTimeout) {
+                    clearTimeout(startRequestTimeout);
+                    startRequestTimeout = null;
+                }
                 gameIsActive = true; // 룰릿 회전 중 → 자동 새로고침 및 UI 갱신 안 함
                 window._gameIsActive = true;
                 if (document.getElementById('start-button')) {
                     document.getElementById('start-button').disabled = true;
+                    document.getElementById('start-button').innerText = '진행 중...';
+                }
+                if (document.getElementById('plus-minute-button')) {
+                    document.getElementById('plus-minute-button').disabled = true;
                 }
 
                 // [추가] 새 게임 시작 시 이전 당첨자 오버레이 숨기기
@@ -1139,7 +1642,7 @@
                                 playFanfare();
                             }
 
-                            socket.emit('confirm_winner', { url: currentUrl });
+                            socket.emit('confirm_winner', { event_id: rouletteLiveKey(), url: rouletteLiveKey() });
                         }
                         return;
                     }
@@ -1177,7 +1680,7 @@
                             playFanfare();
                         }
 
-                        socket.emit('confirm_winner', { url: currentUrl });
+                        socket.emit('confirm_winner', { event_id: rouletteLiveKey(), url: rouletteLiveKey() });
 
                         console.log('백업 타이머로 애니메이션 종료');
                     }
@@ -1185,6 +1688,11 @@
             });
 
             socket.on('update_winner', function (data) {
+                startRequestInFlight = false;
+                if (startRequestTimeout) {
+                    clearTimeout(startRequestTimeout);
+                    startRequestTimeout = null;
+                }
                 gameIsActive = false; // 게임 종료 → 이제 자동 새로고침 허용
                 window._gameIsActive = false;
                 stopAllSounds();
@@ -1201,10 +1709,12 @@
 
                 // start-button cooldown logic
                 const startButton = document.getElementById('start-button');
+                const plusMinuteButton = document.getElementById('plus-minute-button');
                 const targetTimeInput = document.getElementById('target-time');
                 if (startButton) {
                     startButton.disabled = true;
                     if (targetTimeInput) targetTimeInput.disabled = true;
+                    if (plusMinuteButton) plusMinuteButton.disabled = true;
 
                     let cooldown = 10;
                     startButton.innerText = `대기 중 (${cooldown}초)`;
@@ -1216,6 +1726,7 @@
                             startButton.disabled = false;
                             startButton.innerText = '시작';
                             if (targetTimeInput) targetTimeInput.disabled = false;
+                            if (plusMinuteButton) plusMinuteButton.disabled = false;
                         } else {
                             startButton.innerText = `대기 중 (${cooldown}초)`;
                         }
@@ -1287,12 +1798,23 @@
             });
 
             socket.on('error', function (data) {
+                startRequestInFlight = false;
+                if (startRequestTimeout) {
+                    clearTimeout(startRequestTimeout);
+                    startRequestTimeout = null;
+                }
                 stopAllSounds();
 
                 alert(data.message);
                 if (document.getElementById('start-button')) {
                     document.getElementById('start-button').disabled = false;
+                    document.getElementById('start-button').innerText = '시작';
                 }
+                if (document.getElementById('plus-minute-button')) {
+                    document.getElementById('plus-minute-button').disabled = false;
+                }
+                const targetTimeInput = document.getElementById('target-time');
+                if (targetTimeInput) targetTimeInput.disabled = false;
             });
 
             socket.on('play_beep', function () {
@@ -1310,11 +1832,20 @@
             });
 
             socket.on('game_reset_complete', function () {
+                startRequestInFlight = false;
+                if (startRequestTimeout) {
+                    clearTimeout(startRequestTimeout);
+                    startRequestTimeout = null;
+                }
                 gameIsActive = false; // 리셋 → 자동 새로고침 허용
                 window._gameIsActive = false;
                 console.log("게임 리셋 완료");
                 if (document.getElementById('start-button')) {
                     document.getElementById('start-button').disabled = false;
+                    document.getElementById('start-button').innerText = '시작';
+                }
+                if (document.getElementById('plus-minute-button')) {
+                    document.getElementById('plus-minute-button').disabled = false;
                 }
                 document.getElementById('rotating-container').style.transform = 'rotate(0deg)';
                 document.getElementById('winner').innerText = '';
@@ -1338,7 +1869,7 @@
                 console.log('게임 상태 수신:', data);
 
                 // 1. 이벤트 데이터 동기화 (게스트 및 초기 접속자용)
-                if (data.event_data) {
+                if (data.event_data && !window._operatorDraftMode) {
                     const ed = data.event_data;
                     console.log('이벤트 데이터 동기화 시도:', ed);
 
@@ -1357,18 +1888,15 @@
                         }
                     }
 
-                    if (ed.memo !== undefined) {
-                        const memoEl = document.getElementById('memo-text');
-                        const memoContainer = document.getElementById('memo-container');
-                        if (memoEl && memoContainer) {
-                            memoEl.textContent = ed.memo || '';
-                            memoContainer.style.display = ed.memo ? '' : 'none';
-                        }
+                    if (ed.memo !== undefined || ed.allow_duplicates !== undefined) {
+                        renderMemoWithPolicy(ed.memo, ed.allow_duplicates);
                     }
 
                     if (ed.participants) {
                         updateParticipantsUI(ed.participants, null, ed.confirmed_all);
                     }
+                } else if (data.event_data && window._operatorDraftMode) {
+                    console.log('[Socket] game_status 이벤트 데이터 동기화 생략 (운영자 신규 작성 모드)');
                 }
 
                 // 2. 타겟 시간 설정
@@ -1565,6 +2093,10 @@
             // 게임이 돌고 있는지 추적하는 플래그 (위에서 전역 선언됨)
 
             socket.on('update_participants', function (data) {
+                if (window._operatorDraftMode) {
+                    console.log('참가자 업데이트 생략 (운영자 신규 작성 모드)');
+                    return;
+                }
                 if (gameIsActive) {
                     console.log('게임 진행 중: 참가자 UI 업데이트 스킵');
                     return;
@@ -1646,6 +2178,10 @@
 
             socket.on('update_event_settings', (data) => {
                 console.log('이벤트 설정 변경 감지', data);
+                if (window._operatorDraftMode) {
+                    console.log('[Socket] update_event_settings 건너뜀 (운영자 신규 작성 모드)');
+                    return;
+                }
 
                 const prizeListEl = document.getElementById('prize-list');
                 if (prizeListEl) {
@@ -1657,8 +2193,9 @@
 
                 if (!gameIsActive) {
                     // [추가] URL이 변경된 경우 즉시 새로고침 (새 이벤트 전환 대응)
-                    if (data.url && data.url !== currentUrl) {
-                        console.log(`새로운 이벤트 URL 감지 (${data.url}), 즉시 새로고침 실행`);
+                    var newEv = data.event_id || data.url;
+                    if (newEv && newEv !== rouletteLiveKey()) {
+                        console.log(`새로운 이벤트 ID 감지 (${newEv}), 즉시 새로고침 실행`);
                         if (window._scheduleReload) window._scheduleReload('SocketIO:NewEvent', 1000, true);
                         else window.location.reload();
                         return;
@@ -1674,13 +2211,8 @@
                 } else {
                     // 게임 중일 때는 DOM만 업데이트
                     if (data.title) document.getElementById('event-title-display').innerText = data.title;
-                    if (data.memo !== undefined) {
-                        const memoEl = document.getElementById('memo-text');
-                        const memoContainer = document.getElementById('memo-container');
-                        if (memoEl && memoContainer) {
-                            memoEl.textContent = data.memo || '';
-                            memoContainer.style.display = data.memo ? '' : 'none';
-                        }
+                    if (data.memo !== undefined || data.allow_duplicates !== undefined) {
+                        renderMemoWithPolicy(data.memo, data.allow_duplicates);
                     }
                 }
             });
@@ -1690,12 +2222,16 @@
     <!-- Supabase Realtime: DB 변경을 브라우저가 직접 감지하여 자동 새로고침 -->
     <script>
         (function () {
-            var SUPABASE_URL = 'https://kbnszmnmvppfbdpdefqw.supabase.co';
-            var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtibnN6bW5tdnBwZmJkcGRlZnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNzU2MDgsImV4cCI6MjA4NzY1MTYwOH0.nFTpkNsG5Wk3Q10khoAYNyA0UaKpP2kmHLoE5LsVh4A';
+            var SUPABASE_URL = '{{ (supabase_rt_url or "")|e }}';
+            var SUPABASE_ANON_KEY = '{{ (supabase_rt_anon_key or "")|e }}';
             var COOLDOWN_MS = 3000; // [최적화] 쿨다운을 3초로 단축하여 빠른 이벤트 전환 대응
             var _reloadTimer = null;
 
             window._scheduleReload = function (eventType, delayOverride, force) {
+                if (window._operatorDraftMode) {
+                    console.log('[실시간] 운영자 신규 작성 모드 — 자동 새로고침 생략 (' + eventType + ')');
+                    return;
+                }
                 // [수정] force가 true이면 게임 중이거나 당첨자 표시 중이라도 새로고침 허용 (새 이벤트 전환 대응)
                 if (!force && (window._gameIsActive || window._winnerDisplayed)) {
                     console.log('[실시간] 게임 중 또는 당첨자 표시 중, 새로고침 대기');
@@ -1721,28 +2257,50 @@
                 }, delay);
             };
 
+            // 네트워크가 불안정하거나 WS 차단 환경에서는 RT를 끄고 운영(저장/추첨)은 정상 동작
+            if (typeof window.ENABLE_SUPABASE_RT === 'undefined') {
+                window.ENABLE_SUPABASE_RT = true;
+            }
+            if (!window.ENABLE_SUPABASE_RT) {
+                console.log('[Supabase RT] disabled');
+                return;
+            }
+            if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                console.log('[Supabase RT] missing URL/ANON key; disabled');
+                return;
+            }
+
             try {
                 var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 sb.channel('roulette-rt')
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, function (p) {
-                        // [최적화] 새로운 이벤트 URL이 활성화되었는지 확인
-                        if (p.new && p.new.is_active === true) {
-                            var newUrl = p.new.url;
-                            var currentUrlNormalized = (typeof currentUrl !== 'undefined') ? currentUrl : '';
-
-                            if (newUrl && newUrl !== currentUrlNormalized) {
-                                console.log('[Supabase RT] New active URL detected:', newUrl);
-                                // 새로운 이벤트로의 전환은 'force'로 처리하여 즉시 새로고침
-                                window._scheduleReload('NewEvent', 1000, true);
-                                return;
-                            }
+                        var newKey = (p.new && (p.new.id || p.new.url)) || '';
+                        var oldKey = (p.old && (p.old.id || p.old.url)) || '';
+                        var currentKey = rouletteLiveKey();
+                        if (p.eventType === 'INSERT' && p.new && p.new.is_active === false) {
+                            console.log('[Supabase RT] 비활성 초안 posts INSERT — 새로고침 생략');
+                            return;
                         }
-
-                        // 제목, 상품 등 핵심 설정 변경 시에만 새로고침
-                        console.log('[Supabase RT] settings changed:', p.eventType);
+                        var isActiveSwitch = !!(p.new && p.new.is_active === true && newKey && newKey !== currentKey);
+                        if (isActiveSwitch) {
+                            console.log('[Supabase RT] New active event id detected:', newKey);
+                            window._scheduleReload('NewEvent', 1000, true);
+                            return;
+                        }
+                        // 현재 보고 있는 이벤트 키와 무관한 posts 변경(예: 새 이벤트 초안 생성)은 무시
+                        var touchesCurrent = (newKey && newKey === currentKey) || (oldKey && oldKey === currentKey);
+                        if (!touchesCurrent) {
+                            console.log('[Supabase RT] ignore non-active post change:', p.eventType, newKey || oldKey);
+                            return;
+                        }
+                        console.log('[Supabase RT] current-event settings changed:', p.eventType);
                         window._scheduleReload('Settings:' + p.eventType);
                     })
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, function (p) {
+                        if (window._operatorDraftMode) {
+                            console.log('[Supabase RT] participants 변경 무시 (운영자 신규 작성 모드)');
+                            return;
+                        }
                         // 참가자 변경은 소켓이 주로 처리하지만, 보조적으로 상태 요청만 트리거
                         console.log('[Supabase RT] participants change detected');
                         if (window.socket && window.socket.connected) {

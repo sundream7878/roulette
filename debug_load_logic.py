@@ -4,7 +4,7 @@ import os
 sys.path.append(os.getcwd())
 
 from standalone_comment_monitor.db_handler import CommentDatabase
-from monitor_view import normalize_url
+from event_utils import normalize_url
 
 def debug_load():
     db = CommentDatabase()
@@ -19,7 +19,7 @@ def debug_load():
         print(f"Testing URL: {url}")
         print(f"Normalized:  {norm_url}")
         
-        p_dict, last_id, all_c, title, prizes, memo, winners, allow_dup, allowed_list = db.get_data(norm_url)
+        p_dict, last_id, all_c, title, prizes, memo, winners, allow_dup, allowed_list, _ = db.get_data(norm_url)
         
         print(f"  Participants: {len(p_dict)}")
         print(f"  Commenters:   {len(all_c)}")

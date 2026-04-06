@@ -33,7 +33,7 @@ def test_supabase_direct():
     # Wait a bit for eventual consistency if necessary (though our sync is now synchronous-ish with retries)
     time.sleep(2)
     
-    participants, last_id, all_c, title, prizes, memo, winners, allow_dup, allowed_list = db.get_data(test_url)
+    participants, last_id, all_c, title, prizes, memo, winners, allow_dup, allowed_list, _ = db.get_data(test_url)
     
     print(f"Fetched Title: {title}")
     print(f"Fetched Winners: {winners}")
@@ -56,7 +56,7 @@ def test_supabase_direct():
     print("Step 3: Testing clear_data...")
     db.clear_data(test_url)
     time.sleep(2)
-    _, _, _, title_after, _, _, _, _, _ = db.get_data(test_url)
+    _, _, _, title_after, _, _, _, _, _, _ = db.get_data(test_url)
     if title_after is None:
         print("SUCCESS: Data cleared from Supabase.")
     else:

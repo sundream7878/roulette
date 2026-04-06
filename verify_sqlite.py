@@ -26,7 +26,7 @@ def verify_sqlite():
     )
     
     print("Retrieving data...")
-    p, last_id, all_c, title, prizes, memo, winners, allow_dup, allowed_list = db.get_data(test_url)
+    p, last_id, all_c, title, prizes, memo, winners, allow_dup, allowed_list, _ = db.get_data(test_url)
     
     print(f"Results:")
     print(f"  Title: {title}")

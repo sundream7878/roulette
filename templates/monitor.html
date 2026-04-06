@@ -1373,8 +1373,8 @@
     <!-- Supabase Realtime: DB 변경을 브라우저가 직접 감지하여 자동 새로고침 -->
     <script>
         (function () {
-            var SUPABASE_URL = 'https://kbnszmnmvppfbdpdefqw.supabase.co';
-            var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtibnN6bW5tdnBwZmJkcGRlZnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNzU2MDgsImV4cCI6MjA4NzY1MTYwOH0.nFTpkNsG5Wk3Q10khoAYNyA0UaKpP2kmHLoE5LsVh4A';
+            var SUPABASE_URL = '{{ (supabase_rt_url or "")|e }}';
+            var SUPABASE_ANON_KEY = '{{ (supabase_rt_anon_key or "")|e }}';
             var COOLDOWN_MS = 5000; // 5초 내 중복 새로고침 방지 (관리자용이므로 짧게 조정)
             var _reloadTimer = null;
 
@@ -1408,6 +1408,10 @@
             };
 
             try {
+                if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                    console.log('[Supabase RT] missing URL/ANON key; disabled');
+                    return;
+                }
                 var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 sb.channel('monitor-rt')
                     // 참가자/댓글 변동은 Socket.io를 통한 UI 부분 갱신만 수행하고 전체 새로고침은 하지 않음

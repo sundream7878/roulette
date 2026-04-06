@@ -30,7 +30,7 @@ def verify():
     
     # 2. Call get_data which should trigger fallback and hydration
     print("2. Calling db.get_data(test_url)...")
-    participants, last_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list_str = db.get_data(test_url)
+    participants, last_id, all_commenters, title, prizes, memo, winners, allow_duplicates, allowed_list_str, _ = db.get_data(test_url)
     
     print(f"   Result: Title='{title}', Participants={len(participants)}, Commenters={len(all_commenters)}")
     

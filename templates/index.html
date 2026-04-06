@@ -933,7 +933,8 @@
                         if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
                         opApplySavedKey(d);
                         opSetStatus('저장했습니다.', false);
-                        opReloadAfterOperatorCommit();
+                        // 저장 직후에는 실시간 이벤트가 연쇄로 들어오므로 강제 새로고침을 피한다.
+                        // (화면이 사라졌다 나타나는 현상/깜빡임 방지)
                     });
                 })
                 .catch(function (e) { opSetStatus('오류: ' + e, true); });

@@ -750,7 +750,7 @@ def handle_confirm_winner(data=None):
                     # 중복 비허용이면 현재 참여자만 체크, 허용이면 기당첨자도 체크
                     'confirmed_all': (
                         list(set(participants.keys()) | set(current_winners))
-                        if allow_duplicates else list(set(participants.keys()))
+                        if (allow_duplicates != False) else list(set(participants.keys()))
                     ),
                     'full_commenter_list': full_commenter_data,
                     'total_comments': len(all_commenters),
@@ -805,16 +805,26 @@ def handle_request_game_status():
             active_url = get_active_url()
             if active_url:
                 participants_dict, last_id, all_commenter_list, title, prizes, memo, winners, allow_duplicates, _, _ = db.get_data(active_url)
-                
-                # 룰렛용 명단 [(이름, 횟수), ...]
-                p_list_for_roulette = [(name, int(count)) for name, count in participants_dict.items()]
-                p_list_for_roulette.sort(key=lambda x: x[0])
-                
+
+                p_list_for_roulette = []
+                if participants_dict:
+                    # 룰렛용 명단 [(이름, 횟수), ...]
+                    p_list_for_roulette = [(name, int(count)) for name, count in participants_dict.items()]
+                    p_list_for_roulette.sort(key=lambda x: x[0])
+                else:
+                    # 저장 직후 participants 테이블이 비어도 allowed_list로 즉시 복원
+                    allowed_dict = get_allowed_list(active_url)
+                    if allowed_dict:
+                        restored = _roulette_list_from_allowed_dict(allowed_dict, winners, allow_duplicates)
+                        p_list_for_roulette = [(name, int(count)) for name, count, _ in restored]
+                        p_list_for_roulette.sort(key=lambda x: x[0])
+
+                p_names = [name for name, _ in p_list_for_roulette]
                 won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
                 # 중복 비허용이면 현재 참여자만 체크, 허용이면 기당첨자도 체크
                 confirmed_all = (
-                    list(set(participants_dict.keys()) | set(won_names))
-                    if allow_duplicates else list(set(participants_dict.keys()))
+                    list(set(p_names) | set(won_names))
+                    if (allow_duplicates != False) else list(set(p_names))
                 )
                 
                 active_event_data = {

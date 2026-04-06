@@ -377,7 +377,7 @@ class CommentDatabase:
         participants = {}
         all_commenters = []
         last_id, title, prizes, memo, winners, allowed_list_str = None, None, None, None, "", None
-        allow_duplicates = True
+        allow_duplicates = False
         event_at_str: Optional[str] = None
 
         try:
@@ -393,7 +393,7 @@ class CommentDatabase:
                 prizes = post.get("prizes")
                 memo = post.get("memo")
                 winners = post.get("winners", "")
-                allow_duplicates = bool(post.get("allow_duplicates", True))
+                allow_duplicates = bool(post.get("allow_duplicates", False))
                 allowed_list_str = post.get("allowed_list")
                 ea = post.get("event_at")
                 if ea is not None:
@@ -589,7 +589,7 @@ class CommentDatabase:
         self, template_key: str = None, event_at_iso: Optional[str] = None
     ) -> Optional[str]:
         title, prizes, memo, winners = "새 룰렛 이벤트", "", "", ""
-        allow_duplicates, allowed_list_str = True, None
+        allow_duplicates, allowed_list_str = False, None
         template_event_at = event_at_iso
         if template_key:
             _, _, _, t0, pr, m0, w0, ad0, al0, ea0 = self.get_data(template_key)
@@ -597,7 +597,7 @@ class CommentDatabase:
             prizes = pr or ""
             memo = m0 or ""
             winners = ""
-            allow_duplicates = bool(ad0) if ad0 is not None else True
+            allow_duplicates = bool(ad0) if ad0 is not None else False
             allowed_list_str = al0
             if template_event_at is None:
                 template_event_at = ea0

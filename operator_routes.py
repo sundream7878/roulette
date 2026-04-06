@@ -66,7 +66,7 @@ def _register_new_from_operator_form(
         prizes=data.get("prizes") or "",
         memo=data.get("memo") or "",
         winners="",
-        allow_duplicates=bool(data.get("allow_duplicates", True)),
+        allow_duplicates=bool(data.get("allow_duplicates", False)),
         allowed_list=data.get("allowed_list_text"),
         event_at=event_at,
     )
@@ -197,7 +197,7 @@ def api_register_new():
             "prizes": "",
             "memo": "",
             "winners": "",
-            "allow_duplicates": True,
+            "allow_duplicates": False,
             "allowed_list_text": "",
             "event_at": event_at,
         }

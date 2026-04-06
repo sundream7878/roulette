@@ -201,14 +201,14 @@ def guest_view():
     event_at_display = ""
     event_at_input_value = ""
     confirmed_names = [unicodedata.normalize('NFC', p[0].strip()) for p in p_list] if p_list else []
-    allow_duplicates_dash = True
+    allow_duplicates_dash = False
     
     if HAS_MONITOR:
         try:
             active_url = get_active_url()
             if active_url:
                 _, _, _, title, prizes, memo, winners, allow_dup_raw, _, event_at_raw = db.get_data(active_url)
-                allow_duplicates_dash = bool(allow_dup_raw) if allow_dup_raw is not None else True
+                allow_duplicates_dash = bool(allow_dup_raw) if allow_dup_raw is not None else False
                 event_at_display = format_event_at_display(event_at_raw)
                 event_at_input_value = _event_at_input_local_value(event_at_raw)
         except: pass
@@ -368,13 +368,13 @@ def index():
     active_url = None
     event_at_display = ""
     event_at_input_value = ""
-    allow_duplicates_dash = True
+    allow_duplicates_dash = False
     if HAS_MONITOR:
         try:
             active_url = get_active_url()
             if active_url:
                 _, _, _, title, prizes, memo, winners, adash, _, event_at_raw = db.get_data(active_url)
-                allow_duplicates_dash = bool(adash) if adash is not None else True
+                allow_duplicates_dash = bool(adash) if adash is not None else False
                 event_at_display = format_event_at_display(event_at_raw)
                 event_at_input_value = _event_at_input_local_value(event_at_raw)
         except: pass
@@ -832,7 +832,7 @@ def handle_request_game_status():
                     'prizes': prizes,
                     'memo': memo,
                     'winners': winners,
-                    'allow_duplicates': bool(allow_duplicates) if allow_duplicates is not None else True,
+                    'allow_duplicates': bool(allow_duplicates) if allow_duplicates is not None else False,
                     'participants': p_list_for_roulette,
                     'confirmed_all': confirmed_all,
                     'current_url': active_url,

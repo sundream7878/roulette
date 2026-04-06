@@ -398,6 +398,10 @@ class CommentDatabase:
                 ea = post.get("event_at")
                 if ea is not None:
                     event_at_str = str(ea) if not isinstance(ea, str) else ea
+                elif post.get("updated_at") is not None:
+                    # event_at 미구성 스키마 대응: 화면 표시용 fallback
+                    u = post.get("updated_at")
+                    event_at_str = str(u) if not isinstance(u, str) else u
 
                 p_res = self.supabase.table("participants").select("*").eq(self._participant_fk_col, event_id).execute()
                 for p in p_res.data or []:
@@ -540,6 +544,16 @@ class CommentDatabase:
                 # 프론트에서 기대하는 필드는 없어도 키를 맞춰준다.
                 for c in ["event_at", "title", "updated_at", "prizes", "winners", "is_active", "memo", "allow_duplicates"]:
                     r.setdefault(c, None)
+                # event_at 컬럼이 없는 프로젝트에서는 updated_at으로 대체 표시
+                if not r.get("event_at") and r.get("updated_at"):
+                    r["event_at"] = r.get("updated_at")
+
+            # 서버에서도 ID(YYYYMMDDNN) 최신순으로 고정 정렬
+            def _id_num(row: Dict[str, Any]) -> int:
+                v = str((row or {}).get("id") or (row or {}).get("url") or "")
+                return int(v) if (len(v) == 10 and v.isdigit()) else 0
+
+            rows.sort(key=_id_num, reverse=True)
             return rows
         except Exception as e:
             print(f"DEBUG: [list_events] Supabase error: {e}")

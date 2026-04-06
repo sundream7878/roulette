@@ -5,6 +5,9 @@
     <meta charset="UTF-8">
     <title>썬드림 룰렛 추첨 이벤트</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -572,6 +575,7 @@
         }
 
         .op-row input[type="text"],
+        .op-row input[type="datetime-local"],
         .op-row textarea {
             width: 100%;
             padding: 10px;
@@ -812,7 +816,7 @@
         </div>
         <div class="op-row">
             <label>이벤트 일시 <span style="font-weight:400;color:#888">(상단 제목 옆에 표시)</span></label>
-            <input type="datetime-local" id="op-event-at" value="{{ event_at_input_value if event_at_input_value is defined else '' }}" />
+            <input type="text" id="op-event-at" value="{{ event_at_input_value if event_at_input_value is defined else '' }}" placeholder="YYYY-MM-DD HH:mm" />
         </div>
         <div class="op-row">
             <label>이벤트 제목 <span id="op-id-badge" class="op-id-badge">이벤트 ID · —</span></label>
@@ -859,13 +863,40 @@
         function opReloadAfterOperatorCommit() {
             setTimeout(function () { window.location.reload(); }, 450);
         }
-        function opEventAtToLocalValue(iso) {
+        function opEventAtToInputValue(iso) {
             if (!iso) return '';
             var s = String(iso).replace('Z', '').split('+')[0].trim();
-            if (s.indexOf(' ') >= 0 && s.indexOf('T') < 0) s = s.replace(' ', 'T');
-            if (s.length >= 16) return s.slice(0, 16);
-            if (s.length >= 10) return s.slice(0, 10) + 'T12:00';
+            if (s.indexOf(' ') >= 0 && s.indexOf('T') < 0) s = s.replace(' ', 'T', 1);
+            if (s.length >= 16) {
+                var t = s.slice(0, 16);
+                return t.replace('T', ' ');
+            }
+            if (s.length >= 10) return s.slice(0, 10) + ' 12:00';
             return '';
+        }
+        function opEventAtToApiValue(v) {
+            var s = String(v || '').trim();
+            if (!s) return '';
+            if (s.indexOf(' ') >= 0 && s.indexOf('T') < 0) s = s.replace(' ', 'T', 1);
+            if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) s += ':00';
+            return s;
+        }
+        function opInitEventAtPicker() {
+            var eat = document.getElementById('op-event-at');
+            if (!eat || typeof flatpickr === 'undefined') return;
+            if (eat._flatpickr) {
+                try { eat._flatpickr.destroy(); } catch (e) {}
+            }
+            flatpickr.localize(flatpickr.l10ns.ko || {});
+            flatpickr(eat, {
+                enableTime: true,
+                time_24hr: true,
+                minuteIncrement: 1,
+                dateFormat: 'Y-m-d H:i',
+                allowInput: true
+            });
+            var normalized = opEventAtToInputValue(eat.value || '');
+            if (eat._flatpickr && normalized) eat._flatpickr.setDate(normalized, false, 'Y-m-d H:i');
         }
         function opDisplayEventKey(key) {
             var raw = (key || '').trim();
@@ -904,7 +935,11 @@
             document.getElementById('op-allow-dup').checked = !!d.allow_duplicates;
             document.getElementById('op-allowed-list').value = d.allowed_list_text || '';
             var eat = document.getElementById('op-event-at');
-            if (eat) eat.value = opEventAtToLocalValue(d.event_at || '');
+            if (eat) {
+                var v = opEventAtToInputValue(d.event_at || '');
+                eat.value = v;
+                if (eat._flatpickr) eat._flatpickr.setDate(v, false, 'Y-m-d H:i');
+            }
             var h1 = document.getElementById('event-title-display');
             if (h1) h1.textContent = d.title || '';
             opRefreshHistory({ skipEmptyStatus: true });
@@ -913,7 +948,7 @@
         function opFormToBody() {
             return {
                 event_key: (document.getElementById('op-event-key') || {}).value || '',
-                event_at: (document.getElementById('op-event-at') || {}).value || '',
+                event_at: opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || ''),
                 title: document.getElementById('op-title').value,
                 prizes: document.getElementById('op-prizes').value,
                 memo: document.getElementById('op-memo').value,
@@ -943,7 +978,7 @@
             if (!confirm('새 이벤트 작성 칸을 준비할까요?\n현재 입력 내용은 초기화됩니다.')) return;
             opSetStatus('새 이벤트 준비 중...');
             var body = {
-                event_at: (document.getElementById('op-event-at') || {}).value || ''
+                event_at: opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || '')
             };
             fetch('/api/operator/register_new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) })
                 .then(function (r) {
@@ -966,7 +1001,11 @@
                         document.getElementById('op-allow-dup').checked = true;
                         document.getElementById('op-allowed-list').value = '';
                         var eat = document.getElementById('op-event-at');
-                        if (eat) eat.value = opEventAtToLocalValue(d.event_at || '');
+                        if (eat) {
+                            var v = opEventAtToInputValue(d.event_at || '');
+                            eat.value = v;
+                            if (eat._flatpickr) eat._flatpickr.setDate(v, false, 'Y-m-d H:i');
+                        }
                         var h1 = document.getElementById('event-title-display');
                         if (h1) h1.textContent = '';
                         window._operatorDraftMode = true;
@@ -1025,7 +1064,8 @@
                     opt.value = evKey;
                     var id = (evKey || '').slice(0, 32);
                     var t = (ev.title || '(제목 없음)').slice(0, 40);
-                    var dt = (ev.updated_at || '').replace('T', ' ').slice(0, 16);
+                    var dtSrc = ev.event_at || ev.updated_at || '';
+                    var dt = String(dtSrc).replace('T', ' ').slice(0, 16);
                     opt.textContent = id + ' · ' + t + ' · ' + dt + ((!isDraftMode && ev.is_active) ? ' ★' : '');
                     if (preferred && evKey === preferred) {
                         opt.selected = true;
@@ -1058,6 +1098,7 @@
         }
         opRefreshHistory();
         opBindHistorySelect();
+        opInitEventAtPicker();
         (function initBadge() {
             var badge = document.getElementById('op-id-badge');
             if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(opActiveKey || '');

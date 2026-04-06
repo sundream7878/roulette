@@ -1003,11 +1003,22 @@
                     if (isDraftMode) sel.selectedIndex = -1;
                     return;
                 }
+                // ID(YYYYMMDDNN) 기준으로 최신 이벤트가 위로 오도록 보정
+                var rows = (d.events || []).slice().sort(function (a, b) {
+                    function idNum(v) {
+                        var s = String(v || '');
+                        if (/^\d{10}$/.test(s)) return parseInt(s, 10);
+                        return 0;
+                    }
+                    var aId = idNum(a.id || a.url);
+                    var bId = idNum(b.id || b.url);
+                    return bId - aId;
+                });
                 sel.innerHTML = '';
-                var activeRow = d.events.filter(function (e) { return e.is_active; })[0];
+                var activeRow = rows.filter(function (e) { return e.is_active; })[0];
                 var preferred = isDraftMode ? '' : (opActiveKey || (activeRow && (activeRow.id || activeRow.url)) || '');
                 var anySel = false;
-                d.events.forEach(function (ev) {
+                rows.forEach(function (ev) {
                     var opt = document.createElement('option');
                     var evKey = ev.id || ev.url || '';
                     opt.value = evKey;
@@ -2018,6 +2029,33 @@
                 }
             });
 
+            function updateConfirmedOnly(confirmed_all, p_list) {
+                const allContainer = document.getElementById('all-participants-container');
+                if (!allContainer) return;
+
+                const confirmedNames = confirmed_all
+                    ? new Set(confirmed_all)
+                    : new Set(p_list ? p_list.map(p => Array.isArray(p) ? p[0] : (p.name || p.author)) : []);
+                const items = allContainer.querySelectorAll('.all-participant-item');
+                if (items.length > 0) {
+                    items.forEach(item => {
+                        const nameSpan = item.querySelector('.p-name');
+                        if (!nameSpan) return;
+                        const name = nameSpan.innerText.trim();
+                        const badge = item.querySelector('.confirmed-badge');
+                        if (confirmedNames.has(name)) {
+                            item.classList.add('is-confirmed');
+                            if (badge) badge.style.visibility = 'visible';
+                        } else {
+                            item.classList.remove('is-confirmed');
+                            if (badge) badge.style.visibility = 'hidden';
+                        }
+                    });
+                }
+                const confNumEl = document.getElementById('conf-num');
+                if (confNumEl) confNumEl.innerText = confirmedNames.size;
+            }
+
             // 참가자 명단 및 차트 업데이트 함수
             function updateParticipantsUI(p_list, full_commenter_list, confirmed_all) {
                 const chartCanvas = document.getElementById('dart-chart');
@@ -2061,33 +2099,7 @@
                 console.log('참가자 UI 업데이트 실행:', (p_list ? p_list.length : 0) + '명');
 
                 // 2. 전체 명단 갱신 (참여자가 없어도 명단은 갱신되어야 함)
-                const allContainer = document.getElementById('all-participants-container');
-                if (allContainer) {
-                    const confirmedNames = confirmed_all ? new Set(confirmed_all) : new Set(p_list ? p_list.map(p => Array.isArray(p) ? p[0] : (p.name || p.author)) : []);
-                    const items = allContainer.querySelectorAll('.all-participant-item');
-                    if (items.length > 0) {
-                        items.forEach(item => {
-                            const nameSpan = item.querySelector('.p-name');
-                            if (nameSpan) {
-                                const name = nameSpan.innerText.trim();
-                                const badge = item.querySelector('.confirmed-badge');
-                                if (confirmedNames.has(name)) {
-                                    item.classList.add('is-confirmed');
-                                    if (badge) badge.style.visibility = 'visible';
-                                } else {
-                                    item.classList.remove('is-confirmed');
-                                    if (badge) badge.style.visibility = 'hidden';
-                                }
-                            }
-                        });
-                    }
-
-                    // 3. 확정자 수 텍스트 갱신
-                    const confNumEl = document.getElementById('conf-num');
-                    if (confNumEl) {
-                        confNumEl.innerText = confirmedNames.size;
-                    }
-                }
+                updateConfirmedOnly(confirmed_all, p_list);
             }
 
             // 게임이 돌고 있는지 추적하는 플래그 (위에서 전역 선언됨)
@@ -2098,7 +2110,9 @@
                     return;
                 }
                 if (gameIsActive) {
-                    console.log('게임 진행 중: 참가자 UI 업데이트 스킵');
+                    // 게임 중에는 차트는 건드리지 않되, 체크 상태는 즉시 반영한다.
+                    updateConfirmedOnly(data.confirmed_all, data.participants || []);
+                    console.log('게임 진행 중: 차트 업데이트는 스킵, 체크 상태만 반영');
                     return;
                 }
                 console.log('참가자 변경 감지 (SocketIO)', data);
@@ -2153,6 +2167,8 @@
                 const pList = splitText(prizesText);
                 const wList = splitText(winnersText);
 
+                const isPrizesExhausted = (pList.length > 0 && wList.length >= pList.length);
+
                 if (pList.length === 0 && wList.length > 0) {
                     // 사은품은 없는데 당첨자만 있는 경우 (목록 표시)
                     prizeListEl.innerHTML = wList.map(name => `<div class="prize-item"><span>당첨자: <strong style="color: #1a73e8;">${name}님</strong></span></div>`).join('');
@@ -2171,6 +2187,9 @@
                         for (let i = pList.length; i < wList.length; i++) {
                             html += `<div class="prize-item"><span>추가 당첨: <strong style="color: #1a73e8;">${wList[i]}님</strong></span></div>`;
                         }
+                    }
+                    if (isPrizesExhausted) {
+                        html += `<div class="prize-item" style="color:#2e7d32; font-weight:700;">(사은품 모두 소진)</div>`;
                     }
                     prizeListEl.innerHTML = html;
                 }

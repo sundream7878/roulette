@@ -66,8 +66,13 @@ def _ensure_default_active_event():
         row = evs[0] if evs else None
         ek = (row or {}).get("id") or (row or {}).get("url")
         if ek:
-            db.set_active_event_id(ek)
-            print(f"DEBUG: [ensure_active] Latest event activated: {ek}")
+            # 중요: 첫 페이지 렌더 전에 활성 이벤트가 확정되어야
+            # load_participants()가 빈 목록으로 떨어지지 않는다.
+            ok, err = db.set_active_event_id_blocking(ek)
+            if ok:
+                print(f"DEBUG: [ensure_active] Latest event activated: {ek}")
+            else:
+                print(f"DEBUG: [ensure_active] activate failed: {err}")
     except Exception as e:
         print(f"DEBUG: [ensure_active] {e}")
 
@@ -208,12 +213,15 @@ def guest_view():
                 event_at_input_value = _event_at_input_local_value(event_at_raw)
         except: pass
 
-    # 사전 참여 명단 (화이트리스트) 및 가나다순 정렬 (확정자 우선)
+    # 사전 참여 명단 (화이트리스트) 및 가나다순 정렬
+    # - 중복 허용: 현재 참여자 + 기당첨자 모두 체크
+    # - 중복 비허용: 현재 참여자만 체크(기당첨자는 체크 해제)
     if HAS_MONITOR:
-        # 모든 확정자 (현재 참여자 + 기당첨자)
         won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
         p_names = [p[0] for p in p_list]
-        all_confirmed_names = set(p_names) | set(won_names)
+        all_confirmed_names = set(p_names)
+        if allow_duplicates_dash:
+            all_confirmed_names |= set(won_names)
 
         allowed_dict = get_allowed_list(active_url) if active_url else get_allowed_list()
         allowed_info = []
@@ -230,8 +238,10 @@ def guest_view():
     else:
         allowed_info = []
 
-    # [추가] 당첨자 포함 전체 확정된 고유 명단 (체크 표시 및 카운트용)
-    all_confirmed_set = set(confirmed_names) | set(won_names) if HAS_MONITOR else set(confirmed_names)
+    # 전체 체크 상태 목록 (실시간 UI 동기화용)
+    all_confirmed_set = set(confirmed_names)
+    if HAS_MONITOR and allow_duplicates_dash:
+        all_confirmed_set |= set(won_names)
     supabase_rt_url = os.getenv('SUPABASE_URL', '') or ''
     supabase_rt_anon_key = os.getenv('SUPABASE_ANON_KEY', '') or ''
 
@@ -288,6 +298,10 @@ def load_participants(filename="participants.txt"):
     if HAS_MONITOR:
         try:
             active_url = get_active_url()
+            if not active_url:
+                # 배포/재시작 직후 활성 이벤트가 아직 없을 수 있어 1회 보정
+                _ensure_default_active_event()
+                active_url = get_active_url()
             if active_url:
                 participants_dict, _, _, _, _, _, winners_str, allow_duplicates, _, _ = db.get_data(active_url)
                 if participants_dict:
@@ -354,21 +368,26 @@ def index():
     active_url = None
     event_at_display = ""
     event_at_input_value = ""
+    allow_duplicates_dash = True
     if HAS_MONITOR:
         try:
             active_url = get_active_url()
             if active_url:
-                _, _, _, title, prizes, memo, winners, _, _, event_at_raw = db.get_data(active_url)
+                _, _, _, title, prizes, memo, winners, adash, _, event_at_raw = db.get_data(active_url)
+                allow_duplicates_dash = bool(adash) if adash is not None else True
                 event_at_display = format_event_at_display(event_at_raw)
                 event_at_input_value = _event_at_input_local_value(event_at_raw)
         except: pass
 
-    # 사전 참여 명단 (화이트리스트) 및 가나다순 정렬 (확정자 우선)
+    # 사전 참여 명단 (화이트리스트) 및 가나다순 정렬
+    # - 중복 허용: 현재 참여자 + 기당첨자 모두 체크
+    # - 중복 비허용: 현재 참여자만 체크(기당첨자는 체크 해제)
     if HAS_MONITOR:
-        # 모든 확정자 (현재 참여자 + 기당첨자)
         won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
         p_names = [p[0] for p in p_list]
-        all_confirmed_names = set(p_names) | set(won_names)
+        all_confirmed_names = set(p_names)
+        if allow_duplicates_dash:
+            all_confirmed_names |= set(won_names)
 
         allowed_dict = get_allowed_list(active_url) if active_url else get_allowed_list()
         allowed_info = []
@@ -385,15 +404,15 @@ def index():
     else:
         allowed_info = []
 
-    # [추가] 당첨자 포함 전체 확정된 고유 명단 (체크 표시 및 카운트용)
-    all_confirmed_set = set(confirmed_names) | set(won_names) if HAS_MONITOR else set(confirmed_names)
+    # 전체 체크 상태 목록 (실시간 UI 동기화용)
+    all_confirmed_set = set(confirmed_names)
+    if HAS_MONITOR and allow_duplicates_dash:
+        all_confirmed_set |= set(won_names)
 
     allowed_list_text = ""
-    allow_duplicates_dash = True
     if active_url:
         try:
-            _, _, _, _, _, _, _, adash, alt, _ = db.get_data(active_url)
-            allow_duplicates_dash = bool(adash) if adash is not None else True
+            _, _, _, _, _, _, _, _, alt, _ = db.get_data(active_url)
             allowed_list_text = alt or ""
         except Exception:
             pass
@@ -728,7 +747,11 @@ def handle_confirm_winner(data=None):
                 
                 socketio.emit('update_participants', {
                     'participants': p_list_for_roulette,
-                    'confirmed_all': list(set(participants.keys()) | set(current_winners)), # 실시간 확정자 명단 (당첨자 포함)
+                    # 중복 비허용이면 현재 참여자만 체크, 허용이면 기당첨자도 체크
+                    'confirmed_all': (
+                        list(set(participants.keys()) | set(current_winners))
+                        if allow_duplicates else list(set(participants.keys()))
+                    ),
                     'full_commenter_list': full_commenter_data,
                     'total_comments': len(all_commenters),
                     'event_id': str(int(time.time()))
@@ -787,9 +810,12 @@ def handle_request_game_status():
                 p_list_for_roulette = [(name, int(count)) for name, count in participants_dict.items()]
                 p_list_for_roulette.sort(key=lambda x: x[0])
                 
-                # 모든 확정자 (현재 참여자 + 기당첨자)
                 won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
-                confirmed_all = list(set(participants_dict.keys()) | set(won_names))
+                # 중복 비허용이면 현재 참여자만 체크, 허용이면 기당첨자도 체크
+                confirmed_all = (
+                    list(set(participants_dict.keys()) | set(won_names))
+                    if allow_duplicates else list(set(participants_dict.keys()))
+                )
                 
                 active_event_data = {
                     'title': title,

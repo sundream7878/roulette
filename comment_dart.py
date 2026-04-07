@@ -205,7 +205,8 @@ def logout():
 def guest_view():
     if HAS_MONITOR:
         _ensure_default_active_event()
-    p_data = load_participants()
+    active_url = get_active_url() if HAS_MONITOR else None
+    p_data = load_participants(active_event_id=active_url)
     p_list = p_data if p_data else []
     
     # colors 리스트 생성
@@ -219,7 +220,6 @@ def guest_view():
     prizes = None
     memo = None
     winners = None
-    active_url = None
     event_at_display = ""
     event_at_input_value = ""
     confirmed_names = [unicodedata.normalize('NFC', p[0].strip()) for p in p_list] if p_list else []
@@ -227,7 +227,7 @@ def guest_view():
     
     if HAS_MONITOR:
         try:
-            active_url = get_active_url()
+            active_url = active_url or get_active_url()
             if active_url:
                 _, _, _, title, prizes, memo, winners, allow_dup_raw, _, event_at_raw = db.get_data(active_url)
                 allow_duplicates_dash = bool(allow_dup_raw) if allow_dup_raw is not None else False
@@ -309,7 +309,7 @@ def _roulette_list_from_allowed_dict(allowed_dict, winners_str, allow_duplicates
 
 
 # ----- 참가자 로딩 함수 (가나다순 정렬 추가) -----
-def load_participants(filename="participants.txt"):
+def load_participants(filename="participants.txt", active_event_id=None):
     """
     참가자 데이터를 로드합니다. 
     1. 활성화된 이벤트가 있으면 DB에서 가져옵니다 (Render 대응).
@@ -319,7 +319,7 @@ def load_participants(filename="participants.txt"):
     """
     if HAS_MONITOR:
         try:
-            active_url = get_active_url()
+            active_url = normalize_event_id(active_event_id) if active_event_id else get_active_url()
             if not active_url:
                 # 배포/재시작 직후 활성 이벤트가 아직 없을 수 있어 1회 보정
                 _ensure_default_active_event()
@@ -372,7 +372,8 @@ def load_participants(filename="participants.txt"):
 def index():
     if HAS_MONITOR:
         _ensure_default_active_event()
-    p_data = load_participants()
+    active_url = get_active_url() if HAS_MONITOR else None
+    p_data = load_participants(active_event_id=active_url)
     p_list = p_data if p_data else []
     confirmed_names = [unicodedata.normalize('NFC', p[0].strip()) for p in p_list] if p_list else []
     
@@ -387,13 +388,12 @@ def index():
     prizes = None
     memo = None
     winners = None
-    active_url = None
     event_at_display = ""
     event_at_input_value = ""
     allow_duplicates_dash = False
     if HAS_MONITOR:
         try:
-            active_url = get_active_url()
+            active_url = active_url or get_active_url()
             if active_url:
                 _, _, _, title, prizes, memo, winners, adash, _, event_at_raw = db.get_data(active_url)
                 allow_duplicates_dash = bool(adash) if adash is not None else False

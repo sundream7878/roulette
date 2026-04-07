@@ -797,18 +797,10 @@
             <div class="participants-title-row">
                 <strong>
                     📋 총
-                    {% if user and user.is_authenticated %}
-                    <input
-                        type="number"
-                        id="participants-total-input"
-                        class="participants-total-input"
-                        min="0"
-                        step="1"
-                        value="{{ allowed_info|length if allowed_info else 0 }}"
-                    />명
-                    {% else %}
-                    <span class="participants-total-static">{{ allowed_info|length if allowed_info else 0 }}</span>명
-                    {% endif %}
+                    <span
+                        id="participants-total-count"
+                        class="{% if user and user.is_authenticated %}participants-total-input{% else %}participants-total-static{% endif %}"
+                    >{{ allowed_info|length if allowed_info else 0 }}</span>명
                     참가명단 (티켓 수)
                 </strong>
             </div>
@@ -991,6 +983,7 @@
             var h1 = document.getElementById('event-title-display');
             if (h1 && tit) h1.textContent = tit.value || h1.textContent;
             opRefreshHistory({ skipEmptyStatus: true });
+            opUpdateParticipantsTotalFromText(document.getElementById('op-allowed-list').value || '');
         }
         function opApplySelectPayload(d) {
             window._operatorDraftMode = false;
@@ -1015,7 +1008,44 @@
             var h1 = document.getElementById('event-title-display');
             if (h1) h1.textContent = d.title || '';
             opRefreshHistory({ skipEmptyStatus: true });
+            opUpdateParticipantsTotalFromText(d.allowed_list_text || '');
             opSetStatus('히스토리에서 다른 이벤트로 전환했습니다.', false);
+        }
+        function opParseAllowedListCount(text) {
+            var src = String(text || '');
+            if (!src.trim()) return 0;
+            var seen = {};
+            var count = 0;
+            src.split(/\r?\n/).forEach(function (rawLine) {
+                var line = String(rawLine || '').trim();
+                if (!line) return;
+                var name = line;
+                if (line.indexOf(',') >= 0) {
+                    name = line.split(',', 1)[0].trim();
+                } else {
+                    var m = line.match(/^(.+?)\s+[-+]?\d+(?:\.\d+)?$/);
+                    if (m && m[1]) name = m[1].trim();
+                }
+                if (!name) return;
+                if (!Object.prototype.hasOwnProperty.call(seen, name)) {
+                    seen[name] = true;
+                    count += 1;
+                }
+            });
+            return count;
+        }
+        function opUpdateParticipantsTotalFromText(text) {
+            var el = document.getElementById('participants-total-count');
+            if (!el) return;
+            el.textContent = String(opParseAllowedListCount(text));
+        }
+        function opBindAllowedListCounter() {
+            var ta = document.getElementById('op-allowed-list');
+            if (!ta) return;
+            var sync = function () { opUpdateParticipantsTotalFromText(ta.value || ''); };
+            ta.addEventListener('input', sync);
+            ta.addEventListener('change', sync);
+            sync();
         }
         function opFormToBody() {
             return {
@@ -1072,6 +1102,7 @@
                         document.getElementById('op-memo').value = '';
                         document.getElementById('op-allow-dup').checked = false;
                         document.getElementById('op-allowed-list').value = '';
+                        opUpdateParticipantsTotalFromText('');
                         var eat = document.getElementById('op-event-at');
                         if (eat) {
                             var v = opEventAtToInputValue(d.event_at || '');
@@ -1095,6 +1126,7 @@
                 .then(function (r) { return r.json(); }).then(function (d) {
                     if (d.error) { opSetStatus(d.error, true); return; }
                     document.getElementById('op-allowed-list').value = d.allowed_list_text || '';
+                    opUpdateParticipantsTotalFromText(d.allowed_list_text || '');
                     opSetStatus('명단에 반영했습니다 (' + (d.count || 0) + '명). 맨 아래 저장으로 반영하세요.');
                     document.getElementById('op-csv').value = '';
                 }).catch(function (e) { opSetStatus('오류: ' + e, true); });
@@ -1170,6 +1202,7 @@
         }
         opRefreshHistory();
         opBindHistorySelect();
+        opBindAllowedListCounter();
         opInitEventAtPicker();
         (function initBadge() {
             var badge = document.getElementById('op-id-badge');

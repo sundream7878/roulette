@@ -1638,6 +1638,13 @@
         function rouletteLiveKey() {
             return (typeof window.rouletteActiveKey === 'string') ? window.rouletteActiveKey : '';
         }
+        /** Supabase·Socket이 id를 숫자로 줄 때와 템플릿 문자열과 불일치하여 새 이벤트로 오인(1초 후 강제 새로고침)하는 것을 막음 */
+        function rouletteEventKeysMatch(a, b) {
+            var sa = (a === undefined || a === null || a === '') ? '' : String(a).trim();
+            var sb = (b === undefined || b === null || b === '') ? '' : String(b).trim();
+            return sa !== '' && sb !== '' && sa === sb;
+        }
+        window.rouletteEventKeysMatch = rouletteEventKeysMatch;
         const socket = io();
         window.socket = socket;
         let chart;
@@ -3063,8 +3070,9 @@
                 if (!gameIsActive) {
                     // [추가] URL이 변경된 경우 즉시 새로고침 (새 이벤트 전환 대응)
                     var newEv = data.event_id || data.url;
-                    if (newEv && newEv !== rouletteLiveKey()) {
-                        console.log(`새로운 이벤트 ID 감지 (${newEv}), 즉시 새로고침 실행`);
+                    var curKey = rouletteLiveKey();
+                    if (newEv && curKey && !rouletteEventKeysMatch(newEv, curKey)) {
+                        console.log(`새로운 이벤트 ID 감지 (${newEv} vs ${curKey}), 즉시 새로고침 실행`);
                         if (window._scheduleReload) window._scheduleReload('SocketIO:NewEvent', 1000, true);
                         else window.location.reload();
                         return;
@@ -3146,18 +3154,22 @@
                         var newKey = (p.new && (p.new.id || p.new.url)) || '';
                         var oldKey = (p.old && (p.old.id || p.old.url)) || '';
                         var currentKey = rouletteLiveKey();
+                        var keysMatch = (typeof window.rouletteEventKeysMatch === 'function')
+                            ? window.rouletteEventKeysMatch
+                            : function (a, b) { return String(a || '') === String(b || ''); };
                         if (p.eventType === 'INSERT' && p.new && p.new.is_active === false) {
                             console.log('[Supabase RT] 비활성 초안 posts INSERT — 새로고침 생략');
                             return;
                         }
-                        var isActiveSwitch = !!(p.new && p.new.is_active === true && newKey && newKey !== currentKey);
+                        var isActiveSwitch = !!(p.new && p.new.is_active === true && newKey && currentKey && !keysMatch(newKey, currentKey));
                         if (isActiveSwitch) {
                             console.log('[Supabase RT] New active event id detected:', newKey);
                             window._scheduleReload('NewEvent', 1000, true);
                             return;
                         }
                         // 현재 보고 있는 이벤트 키와 무관한 posts 변경(예: 새 이벤트 초안 생성)은 무시
-                        var touchesCurrent = (newKey && newKey === currentKey) || (oldKey && oldKey === currentKey);
+                        var touchesCurrent = (newKey && currentKey && keysMatch(newKey, currentKey))
+                            || (oldKey && currentKey && keysMatch(oldKey, currentKey));
                         if (!touchesCurrent) {
                             console.log('[Supabase RT] ignore non-active post change:', p.eventType, newKey || oldKey);
                             return;

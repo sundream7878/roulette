@@ -862,9 +862,11 @@ def handle_confirm_winner(data=None):
                 print(f"DEBUG: Saved winners to DB: {new_winners_str}")
 
                 # 4. 실시간 설정 브로드캐스트 (당첨자 명단 및 모든 설정 갱신을 위해)
+                # event_id/url 은 JSON에서 숫자로 직렬화되면 클라이언트 문자열 키와 !== 로 새 이벤트 오인 → 강제 새로고침 되므로 문자열로 통일
+                _ev_key = str(active_url) if active_url is not None else ''
                 socketio.emit('update_event_settings', {
-                    'event_id': active_url,
-                    'url': active_url,
+                    'event_id': _ev_key,
+                    'url': _ev_key,
                     'title': title,
                     'prizes': prizes,
                     'memo': memo,

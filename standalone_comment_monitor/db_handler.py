@@ -259,9 +259,14 @@ class CommentDatabase:
             post_data["allow_duplicates"] = allow_duplicates
         if last_comment_id is not None:
             post_data["last_comment_id"] = last_comment_id
-        # event_at 컬럼이 없는 프로젝트(구버전 스키마)에서도 저장이 깨지지 않도록 보호
-        if event_at is not None and "event_at" in self._post_opt_cols:
-            post_data["event_at"] = event_at
+        # event_at 저장 정책
+        # 1) event_at 컬럼이 있으면 정상 저장
+        # 2) 컬럼이 없으면 updated_at에 대체 저장하여 운영자가 수정한 행사 시간이 유지되게 함
+        if event_at is not None:
+            if "event_at" in self._post_opt_cols:
+                post_data["event_at"] = event_at
+            elif "updated_at" in self._post_opt_cols:
+                post_data["updated_at"] = event_at
 
         self._save_post_row_resilient(event_id, post_data)
 

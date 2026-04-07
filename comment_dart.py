@@ -51,6 +51,35 @@ def _ko_first_name_key(name: str):
     return (group, s.casefold())
 
 
+def _normalize_ticket_count(v):
+    """participants dict 값: 스칼라 또는 (count, created_at) 등 튜플."""
+    if isinstance(v, (tuple, list)):
+        raw = v[0] if v else 0
+    else:
+        raw = v
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _roulette_pairs_from_participants_dict(participants_dict, winners_str, allow_duplicates):
+    """load_participants와 동일 정책으로 룰렛용 [(이름, 횟수), ...]."""
+    if not participants_dict:
+        return []
+    won_names = []
+    if winners_str:
+        won_names = [w.strip() for w in winners_str.split(',') if w.strip()]
+    policy_allow_duplicates = (allow_duplicates != False)
+    out = []
+    for name, v in participants_dict.items():
+        if not policy_allow_duplicates and name in won_names:
+            continue
+        out.append((name, _normalize_ticket_count(v)))
+    out.sort(key=lambda x: _ko_first_name_key(x[0]))
+    return out
+
+
 def _event_at_input_local_value(iso_str):
     """datetime-local 입력용 YYYY-MM-DDTHH:mm (브라우저 기본)."""
     if not iso_str:
@@ -340,10 +369,10 @@ def load_participants(filename="participants.txt", active_event_id=None):
                         if not policy_allow_duplicates and name in won_names:
                             print(f"DEBUG: [Filter] Skipping previous winner: {name}")
                             continue
-                            
-                        count = v[0] if isinstance(v, (tuple, list)) else v
-                        created_at = v[1] if isinstance(v, (tuple, list)) else None
-                        participants.append((name, int(count), created_at))
+
+                        count = _normalize_ticket_count(v)
+                        created_at = v[1] if isinstance(v, (tuple, list)) and len(v) > 1 else None
+                        participants.append((name, count, created_at))
                     
                     participants.sort(key=lambda x: _ko_first_name_key(x[0]))
                     
@@ -752,7 +781,7 @@ def handle_confirm_winner(data=None):
                 
                 # [추가] 참가자 명단 변경 사항 브로드캐스트 (실시간 UI 갱신용)
                 # 중복 비허용 시 제거된 명단을 전송하고, 중복 허용 시에도 당첨자 배지 상태 동기화를 위해 전송
-                p_list_for_roulette = [(name, int(count)) for name, count in participants.items()]
+                p_list_for_roulette = [(name, _normalize_ticket_count(v)) for name, v in participants.items()]
                 p_list_for_roulette.sort(key=lambda x: _ko_first_name_key(x[0]))
                 
                 # [중요] 전체 활동 목록(full_commenter_list)을 DB에서 가져와서 배지 정보 추가
@@ -830,9 +859,9 @@ def handle_request_game_status():
 
                 p_list_for_roulette = []
                 if participants_dict:
-                    # 룰렛용 명단 [(이름, 횟수), ...]
-                    p_list_for_roulette = [(name, int(count)) for name, count in participants_dict.items()]
-                    p_list_for_roulette.sort(key=lambda x: _ko_first_name_key(x[0]))
+                    p_list_for_roulette = _roulette_pairs_from_participants_dict(
+                        participants_dict, winners, allow_duplicates
+                    )
                 else:
                     # 저장 직후 participants 테이블이 비어도 allowed_list로 즉시 복원
                     allowed_dict = get_allowed_list(active_url)

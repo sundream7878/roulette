@@ -1036,6 +1036,7 @@
             if (h1) h1.textContent = d.title || '';
             opRefreshHistory({ skipEmptyStatus: true });
             opUpdateParticipantsTotalFromText(d.allowed_list_text || '');
+            opApplySelectedEventToLivePanels(d);
             opSetStatus('히스토리에서 다른 이벤트로 전환했습니다.', false);
         }
         function opParseAllowedListCount(text) {
@@ -1073,6 +1074,104 @@
             ta.addEventListener('input', sync);
             ta.addEventListener('change', sync);
             sync();
+        }
+        function opParseAllowedListPairs(text) {
+            var out = [];
+            var src = String(text || '');
+            if (!src.trim()) return out;
+            src.split(/\r?\n/).forEach(function (rawLine) {
+                var line = String(rawLine || '').trim();
+                if (!line) return;
+                var name = line;
+                var cnt = 1;
+                if (line.indexOf(',') >= 0) {
+                    var parts = line.split(',');
+                    name = (parts[0] || '').trim();
+                    var c = parseInt((parts[1] || '').trim(), 10);
+                    if (!isNaN(c) && c > 0) cnt = c;
+                } else {
+                    var m = line.match(/^(.+?)\s+([-+]?\d+)$/);
+                    if (m && m[1]) {
+                        name = m[1].trim();
+                        var c2 = parseInt(m[2], 10);
+                        if (!isNaN(c2) && c2 > 0) cnt = c2;
+                    }
+                }
+                if (!name) return;
+                out.push([name, cnt]);
+            });
+            return out;
+        }
+        function opRenderParticipantsListFromAllowed(allowedPairs, confirmedSet) {
+            var allContainer = document.getElementById('all-participants-container');
+            if (!allContainer) return;
+            Array.prototype.slice.call(allContainer.querySelectorAll('.all-participant-item, .participant-separator, .participants-empty')).forEach(function (el) {
+                if (el && el.parentNode) el.parentNode.removeChild(el);
+            });
+            if (!allowedPairs || !allowedPairs.length) {
+                var empty = document.createElement('div');
+                empty.className = 'participants-empty';
+                empty.style.cssText = 'color:#999; font-size:0.9em;';
+                empty.textContent = '참여 명단이 없습니다.';
+                allContainer.appendChild(empty);
+                return;
+            }
+            var confirmed = [];
+            var unconfirmed = [];
+            allowedPairs.forEach(function (row) {
+                var nm = row[0];
+                if (confirmedSet && confirmedSet.has(nm)) confirmed.push(row);
+                else unconfirmed.push(row);
+            });
+            function appendRow(row, isConfirmed) {
+                var item = document.createElement('div');
+                item.className = 'all-participant-item' + (isConfirmed ? ' is-confirmed' : '');
+                var badge = document.createElement('span');
+                badge.className = 'confirmed-badge';
+                badge.textContent = '✅';
+                if (!isConfirmed) badge.style.visibility = 'hidden';
+                var nameSpan = document.createElement('span');
+                nameSpan.className = 'p-name';
+                nameSpan.textContent = row[0];
+                var ticketSpan = document.createElement('span');
+                ticketSpan.className = 'p-tickets';
+                ticketSpan.textContent = ' (' + String(row[1]) + '장)';
+                item.appendChild(badge);
+                item.appendChild(nameSpan);
+                item.appendChild(ticketSpan);
+                allContainer.appendChild(item);
+            }
+            confirmed.forEach(function (row) { appendRow(row, true); });
+            if (confirmed.length > 0 && unconfirmed.length > 0) {
+                var sep = document.createElement('div');
+                sep.className = 'participant-separator';
+                allContainer.appendChild(sep);
+            }
+            unconfirmed.forEach(function (row) { appendRow(row, false); });
+        }
+        function opApplySelectedEventToLivePanels(d) {
+            if (!d) return;
+            var prizeListEl = document.getElementById('prize-list');
+            if (prizeListEl) {
+                prizeListEl.dataset.prizes = d.prizes || '';
+                prizeListEl.dataset.winners = d.winners || '';
+                if (typeof renderPrizes === 'function') {
+                    renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
+                }
+            }
+            if (typeof renderMemoWithPolicy === 'function') {
+                renderMemoWithPolicy(d.memo || '', !!d.allow_duplicates);
+            }
+            var allowedPairs = opParseAllowedListPairs(d.allowed_list_text || '');
+            var winnerSet = new Set(splitText(d.winners || ''));
+            var roulettePairs = (!!d.allow_duplicates)
+                ? allowedPairs.slice()
+                : allowedPairs.filter(function (row) { return !winnerSet.has(row[0]); });
+            var confirmedAll = roulettePairs.map(function (row) { return row[0]; });
+            opRenderParticipantsListFromAllowed(allowedPairs, new Set(confirmedAll));
+            if (typeof updateParticipantsUI === 'function') {
+                updateParticipantsUI(roulettePairs, null, confirmedAll);
+            }
         }
         function opFormToBody() {
             return {
@@ -1317,7 +1416,9 @@
                     .then(function (r) { return r.json(); }).then(function (d) {
                         if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
                         opApplySelectPayload(d);
-                        opReloadAfterOperatorCommit();
+                        if (window.socket && window.socket.connected) {
+                            window.socket.emit('request_game_status');
+                        }
                     }).catch(function (e) { opSetStatus('오류: ' + e, true); });
             });
         }
@@ -1345,6 +1446,7 @@
             return (typeof window.rouletteActiveKey === 'string') ? window.rouletteActiveKey : '';
         }
         const socket = io();
+        window.socket = socket;
         let chart;
         let countdownInterval = null;
         let targetDateTime = null;

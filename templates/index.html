@@ -1153,10 +1153,16 @@
             var badge = document.getElementById('op-id-badge');
             if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(key);
             document.getElementById('op-title').value = d.title || '';
-            document.getElementById('op-prizes').value = d.prizes || '';
-            document.getElementById('op-memo').value = d.memo || '';
+            var opPrizes = document.getElementById('op-prizes');
+            var opMemo = document.getElementById('op-memo');
+            var nextPrizes = (d.prizes === null || d.prizes === undefined) ? '' : String(d.prizes);
+            var nextMemo = (d.memo === null || d.memo === undefined) ? '' : String(d.memo);
+            if (opPrizes && (nextPrizes.trim() !== '' || !String(opPrizes.value || '').trim())) opPrizes.value = nextPrizes;
+            if (opMemo && (nextMemo.trim() !== '' || !String(opMemo.value || '').trim())) opMemo.value = nextMemo;
             document.getElementById('op-allow-dup').checked = !!d.allow_duplicates;
-            document.getElementById('op-allowed-list').value = d.allowed_list_text || '';
+            var opAllowed = document.getElementById('op-allowed-list');
+            var nextAllowed = (d.allowed_list_text === null || d.allowed_list_text === undefined) ? '' : String(d.allowed_list_text);
+            if (opAllowed && (nextAllowed.trim() !== '' || !String(opAllowed.value || '').trim())) opAllowed.value = nextAllowed;
             var eat = document.getElementById('op-event-at');
             if (eat) {
                 var v = opEventAtToInputValue(d.event_at || '');
@@ -1196,7 +1202,12 @@
         function opUpdateParticipantsTotalFromText(text) {
             var el = document.getElementById('participants-total-count');
             if (!el) return;
-            el.textContent = String(opParseAllowedListCount(text));
+            var parsed = opParseAllowedListCount(text);
+            if (parsed === 0 && !String(text || '').trim()) {
+                var liveCount = document.querySelectorAll('#all-participants-container .all-participant-item').length;
+                if (liveCount > 0) parsed = liveCount;
+            }
+            el.textContent = String(parsed);
         }
         function opBindAllowedListCounter() {
             var ta = document.getElementById('op-allowed-list');
@@ -1284,14 +1295,24 @@
             if (!d) return;
             var prizeListEl = document.getElementById('prize-list');
             if (prizeListEl) {
-                prizeListEl.dataset.prizes = d.prizes || '';
+                var nextPr = (d.prizes === null || d.prizes === undefined) ? '' : String(d.prizes);
+                if (nextPr.trim() !== '' || !(prizeListEl.dataset.prizes || '').trim()) {
+                    prizeListEl.dataset.prizes = nextPr;
+                }
                 prizeListEl.dataset.winners = d.winners || '';
                 if (typeof renderPrizes === 'function') {
                     renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
                 }
             }
             if (typeof renderMemoWithPolicy === 'function') {
-                renderMemoWithPolicy(d.memo || '', !!d.allow_duplicates);
+                var memoTextEl = document.getElementById('memo-text');
+                var currMemo = memoTextEl ? String(memoTextEl.textContent || '').trim() : '';
+                var nextMemo = (d.memo === null || d.memo === undefined) ? '' : String(d.memo);
+                if (nextMemo.trim() !== '' || !currMemo) {
+                    renderMemoWithPolicy(nextMemo, !!d.allow_duplicates);
+                } else {
+                    renderMemoWithPolicy(currMemo, !!d.allow_duplicates);
+                }
             }
             var allowedPairs = opParseAllowedListPairs(d.allowed_list_text || '');
             var winnerSet = new Set(splitText(d.winners || ''));
@@ -1591,6 +1612,7 @@
                 window._rouletteAwaitingGameStatus = true;
                 window._rouletteSwitchTargetKey = v;
                 window._rouletteSwitchStartedAt = Date.now();
+                window._rouletteSwitchExpectedParticipants = 0;
                 if (typeof window.showRouletteLoading === 'function') {
                     window.showRouletteLoading(
                         '이벤트를 전환하는 중입니다.',
@@ -1604,6 +1626,9 @@
                             opSetStatus(opFormatApiError(d), true);
                             return;
                         }
+                        var expectedFromAllowed = opParseAllowedListCount(d.allowed_list_text || '');
+                        var expectedFromParticipants = parseInt(d.participant_count || 0, 10);
+                        window._rouletteSwitchExpectedParticipants = Math.max(expectedFromAllowed, expectedFromParticipants);
                         opApplySelectPayload(d);
                         if (window.socket && window.socket.connected) {
                             window._rouletteAwaitingGameStatus = true;
@@ -1650,16 +1675,21 @@
         // 이벤트 전환 로딩: "몇 초"가 아니라 실제 데이터(명단/메모/사은품)가 채워질 때까지 유지
         window._rouletteSwitchTargetKey = '';
         window._rouletteSwitchStartedAt = 0;
-        window._rouletteSwitchMaxWaitMs = 12000;
+        window._rouletteSwitchExpectedParticipants = 0;
+        window._rouletteSwitchMaxWaitMs = 7000;
         function _rouletteEventSwitchReady(ed) {
             if (!ed) return false;
             var target = window._rouletteSwitchTargetKey ? String(window._rouletteSwitchTargetKey) : '';
             if (target && !rouletteEventKeysMatch(ed.event_id || ed.url || '', target)) return false;
-            // 최소한: prizes/memo 키가 존재 + 참가자 정보가 한 번이라도 옴
+            // 최소한: prizes/memo 키가 존재 + 참가자 정보가 의미 있게 옴
             var hasPrizes = Object.prototype.hasOwnProperty.call(ed, 'prizes');
             var hasMemo = Object.prototype.hasOwnProperty.call(ed, 'memo');
-            var hasParticipants = Object.prototype.hasOwnProperty.call(ed, 'participants')
-                || (ed.participant_display_list && ed.participant_display_list.length);
+            var displayCount = (ed.participant_display_list && ed.participant_display_list.length) ? ed.participant_display_list.length : 0;
+            var rouletteCount = (Array.isArray(ed.participants) && ed.participants.length) ? ed.participants.length : 0;
+            var expected = parseInt(window._rouletteSwitchExpectedParticipants || 0, 10);
+            var hasParticipants = (expected > 0)
+                ? ((displayCount > 0) || (rouletteCount > 0))
+                : (Object.prototype.hasOwnProperty.call(ed, 'participants') || displayCount > 0);
             return hasPrizes && hasMemo && hasParticipants;
         }
         const socket = io();
@@ -2744,7 +2774,7 @@
                     // 이벤트 전환 로딩은 실제 데이터가 채워질 때까지 유지
                     if (window._rouletteAwaitingGameStatus) {
                         var now = Date.now();
-                        var maxWait = window._rouletteSwitchMaxWaitMs || 12000;
+                        var maxWait = window._rouletteSwitchMaxWaitMs || 7000;
                         var expired = window._rouletteSwitchStartedAt && (now - window._rouletteSwitchStartedAt > maxWait);
                         if (_rouletteEventSwitchReady(ed) || expired) {
                             window._rouletteAwaitingGameStatus = false;

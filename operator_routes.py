@@ -304,7 +304,7 @@ def api_select():
     ok, err_detail = _db().set_active_event_id_blocking(key)
     if not ok:
         return _operator_storage_error_response(err_detail)
-    _, _, _, title, prizes, memo, winners, allow_duplicates, allowed_list, event_at = _db().get_data(key)
+    participants, _, _, title, prizes, memo, winners, allow_duplicates, allowed_list, event_at = _db().get_data(key)
     return jsonify({
         "ok": True,
         "event_key": key,
@@ -315,6 +315,7 @@ def api_select():
         "allow_duplicates": bool(allow_duplicates),
         "allowed_list_text": allowed_list or "",
         "event_at": event_at or "",
+        "participant_count": len(participants or {}),
     })
 
 

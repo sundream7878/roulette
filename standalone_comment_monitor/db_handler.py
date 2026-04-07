@@ -447,12 +447,12 @@ class CommentDatabase:
     def _sync_active_event_supabase_core(self, event_id: Optional[str]):
         self.supabase.table("posts").update({"is_active": False}).neq(self._post_key_col, "void").execute()
         if event_id:
-            post_data = {self._post_key_col: event_id, "is_active": True}
-            if self._post_has_id_col:
-                post_data["id"] = event_id
-            if self._post_has_url_col:
-                post_data["url"] = event_id
-            self._save_post_row_resilient(event_id, post_data)
+            # 중요:
+            # 활성화 단계에서는 "기존 이벤트 행의 is_active 플래그만" 갱신한다.
+            # 유니크 제약이 없는 프로젝트에서 여기서 insert/upsert를 쓰면
+            # 동일 ID의 최소 필드 행이 중복 생성되어(제목/사은품/메모 비어 있음)
+            # 이후 조회 시 값이 사라진 것처럼 보일 수 있다.
+            self.supabase.table("posts").update({"is_active": True}).eq(self._post_key_col, event_id).execute()
             print(f"DEBUG: [SupabaseSync] Active event id set to: {event_id}")
 
     @retry_supabase

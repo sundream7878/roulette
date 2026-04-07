@@ -1613,6 +1613,7 @@
                 window._rouletteSwitchTargetKey = v;
                 window._rouletteSwitchStartedAt = Date.now();
                 window._rouletteSwitchExpectedParticipants = 0;
+                if (typeof window.suspendAutoReload === 'function') window.suspendAutoReload(10000);
                 if (typeof window.showRouletteLoading === 'function') {
                     window.showRouletteLoading(
                         '이벤트를 전환하는 중입니다.',
@@ -1672,6 +1673,13 @@
             return sa !== '' && sb !== '' && sa === sb;
         }
         window.rouletteEventKeysMatch = rouletteEventKeysMatch;
+        // 히스토리 전환 중에는 소켓/RT 자동 리로드를 잠시 막아 깜빡임을 방지
+        window._suspendAutoReloadUntil = 0;
+        function suspendAutoReload(ms) {
+            var hold = Number(ms || 0);
+            if (hold > 0) window._suspendAutoReloadUntil = Date.now() + hold;
+        }
+        window.suspendAutoReload = suspendAutoReload;
         // 이벤트 전환 로딩: "몇 초"가 아니라 실제 데이터(명단/메모/사은품)가 채워질 때까지 유지
         window._rouletteSwitchTargetKey = '';
         window._rouletteSwitchStartedAt = 0;
@@ -2780,6 +2788,8 @@
                             window._rouletteAwaitingGameStatus = false;
                             window._rouletteSwitchTargetKey = '';
                             window._rouletteSwitchStartedAt = 0;
+                            window._rouletteSwitchExpectedParticipants = 0;
+                            if (typeof window.suspendAutoReload === 'function') window.suspendAutoReload(2500);
                             if (typeof hideRouletteLoading === 'function') hideRouletteLoading();
                             if (expired && typeof window.opSetStatus === 'function') {
                                 window.opSetStatus('동기화가 지연되고 있습니다. 네트워크 상태를 확인해 주세요.', true);
@@ -3156,14 +3166,9 @@
                         else window.location.reload();
                         return;
                     }
-
-                    // 당첨자가 포함된 업데이트인 경우 10초 대기, 아니면 기존 2초 대기
-                    const hasNewWinner = (data.winners !== undefined) && String(data.winners || '') !== String(prevWinners || '');
-                    const delay = hasNewWinner ? 10000 : 2000;
-
-                    console.log(`이벤트 설정 변경 감지: 자동 새로고침 예약 (${delay}ms)`);
-                    if (window._scheduleReload) window._scheduleReload('SocketIO', delay);
-                    else window.location.reload();
+                    // 동일 이벤트의 설정 변경은 DOM 반영만으로 충분하므로 자동 새로고침하지 않는다.
+                    // (히스토리 전환 직후 2초 깜빡임 방지)
+                    return;
                 } else {
                     // 게임 중일 때는 DOM만 업데이트
                     if (data.title) document.getElementById('event-title-display').innerText = data.title;
@@ -3193,6 +3198,10 @@
             window._scheduleReload = function (eventType, delayOverride, force) {
                 if (window._operatorDraftMode) {
                     console.log('[실시간] 운영자 신규 작성 모드 — 자동 새로고침 생략 (' + eventType + ')');
+                    return;
+                }
+                if (window._suspendAutoReloadUntil && Date.now() < window._suspendAutoReloadUntil) {
+                    console.log('[실시간] 히스토리 전환 중 자동 새로고침 일시 보류 (' + eventType + ')');
                     return;
                 }
                 // [수정] force가 true이면 게임 중이거나 당첨자 표시 중이라도 새로고침 허용 (새 이벤트 전환 대응)

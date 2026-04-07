@@ -29,6 +29,28 @@ def get_allowed_list(url=None):
     return _get_allowed_list_util(db, url)
 
 
+def _is_hangul_char(ch: str) -> bool:
+    if not ch:
+        return False
+    code = ord(ch)
+    return (
+        0xAC00 <= code <= 0xD7A3  # Hangul Syllables
+        or 0x1100 <= code <= 0x11FF  # Hangul Jamo
+        or 0x3130 <= code <= 0x318F  # Hangul Compatibility Jamo
+        or 0xA960 <= code <= 0xA97F  # Hangul Jamo Extended-A
+        or 0xD7B0 <= code <= 0xD7FF  # Hangul Jamo Extended-B
+    )
+
+
+def _ko_first_name_key(name: str):
+    """한글 이름을 영문/기타보다 먼저 정렬하기 위한 키."""
+    s = unicodedata.normalize("NFC", str(name or "").strip())
+    if not s:
+        return (2, "")
+    group = 0 if _is_hangul_char(s[0]) else 1
+    return (group, s.casefold())
+
+
 def _event_at_input_local_value(iso_str):
     """datetime-local 입력용 YYYY-MM-DDTHH:mm (브라우저 기본)."""
     if not iso_str:
@@ -234,7 +256,7 @@ def guest_view():
                 'is_confirmed': is_confirmed
             })
         # 정렬: 확정자 우선, 그 다음 가나다순
-        allowed_info.sort(key=lambda x: (not x['is_confirmed'], x['name']))
+        allowed_info.sort(key=lambda x: (not x['is_confirmed'], _ko_first_name_key(x['name'])))
     else:
         allowed_info = []
 
@@ -280,7 +302,7 @@ def _roulette_list_from_allowed_dict(allowed_dict, winners_str, allow_duplicates
         except (TypeError, ValueError):
             t = 1
         participants.append((name_norm, t, None))
-    participants.sort(key=lambda x: x[0])
+    participants.sort(key=lambda x: _ko_first_name_key(x[0]))
     if len(participants) > 100:
         participants = [(f"{i+1}", p[1], p[2]) for i, p in enumerate(participants)]
     return participants
@@ -323,7 +345,7 @@ def load_participants(filename="participants.txt"):
                         created_at = v[1] if isinstance(v, (tuple, list)) else None
                         participants.append((name, int(count), created_at))
                     
-                    participants.sort(key=lambda x: x[0])
+                    participants.sort(key=lambda x: _ko_first_name_key(x[0]))
                     
                     # 별명 100개 이상이면 숫자로 대체 (기존 로직 유지)
                     if len(participants) > 100:
@@ -400,7 +422,7 @@ def index():
                 'is_confirmed': is_confirmed
             })
         # 정렬: 확정자 우선, 그 다음 가나다순
-        allowed_info.sort(key=lambda x: (not x['is_confirmed'], x['name']))
+        allowed_info.sort(key=lambda x: (not x['is_confirmed'], _ko_first_name_key(x['name'])))
     else:
         allowed_info = []
 
@@ -731,7 +753,7 @@ def handle_confirm_winner(data=None):
                 # [추가] 참가자 명단 변경 사항 브로드캐스트 (실시간 UI 갱신용)
                 # 중복 비허용 시 제거된 명단을 전송하고, 중복 허용 시에도 당첨자 배지 상태 동기화를 위해 전송
                 p_list_for_roulette = [(name, int(count)) for name, count in participants.items()]
-                p_list_for_roulette.sort(key=lambda x: x[0])
+                p_list_for_roulette.sort(key=lambda x: _ko_first_name_key(x[0]))
                 
                 # [중요] 전체 활동 목록(full_commenter_list)을 DB에서 가져와서 배지 정보 추가
                 allowed_list = get_allowed_list(active_url)
@@ -810,14 +832,14 @@ def handle_request_game_status():
                 if participants_dict:
                     # 룰렛용 명단 [(이름, 횟수), ...]
                     p_list_for_roulette = [(name, int(count)) for name, count in participants_dict.items()]
-                    p_list_for_roulette.sort(key=lambda x: x[0])
+                    p_list_for_roulette.sort(key=lambda x: _ko_first_name_key(x[0]))
                 else:
                     # 저장 직후 participants 테이블이 비어도 allowed_list로 즉시 복원
                     allowed_dict = get_allowed_list(active_url)
                     if allowed_dict:
                         restored = _roulette_list_from_allowed_dict(allowed_dict, winners, allow_duplicates)
                         p_list_for_roulette = [(name, int(count)) for name, count, _ in restored]
-                        p_list_for_roulette.sort(key=lambda x: x[0])
+                        p_list_for_roulette.sort(key=lambda x: _ko_first_name_key(x[0]))
 
                 p_names = [name for name, _ in p_list_for_roulette]
                 won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []

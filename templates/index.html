@@ -1589,6 +1589,8 @@
                 if (v === opActiveKey) return;
                 opSetStatus('선택한 이벤트로 전환 중...');
                 window._rouletteAwaitingGameStatus = true;
+                window._rouletteSwitchTargetKey = v;
+                window._rouletteSwitchStartedAt = Date.now();
                 if (typeof window.showRouletteLoading === 'function') {
                     window.showRouletteLoading(
                         '이벤트를 전환하는 중입니다.',
@@ -1645,6 +1647,21 @@
             return sa !== '' && sb !== '' && sa === sb;
         }
         window.rouletteEventKeysMatch = rouletteEventKeysMatch;
+        // 이벤트 전환 로딩: "몇 초"가 아니라 실제 데이터(명단/메모/사은품)가 채워질 때까지 유지
+        window._rouletteSwitchTargetKey = '';
+        window._rouletteSwitchStartedAt = 0;
+        window._rouletteSwitchMaxWaitMs = 12000;
+        function _rouletteEventSwitchReady(ed) {
+            if (!ed) return false;
+            var target = window._rouletteSwitchTargetKey ? String(window._rouletteSwitchTargetKey) : '';
+            if (target && !rouletteEventKeysMatch(ed.event_id || ed.url || '', target)) return false;
+            // 최소한: prizes/memo 키가 존재 + 참가자 정보가 한 번이라도 옴
+            var hasPrizes = Object.prototype.hasOwnProperty.call(ed, 'prizes');
+            var hasMemo = Object.prototype.hasOwnProperty.call(ed, 'memo');
+            var hasParticipants = Object.prototype.hasOwnProperty.call(ed, 'participants')
+                || (ed.participant_display_list && ed.participant_display_list.length);
+            return hasPrizes && hasMemo && hasParticipants;
+        }
         const socket = io();
         window.socket = socket;
         let chart;
@@ -2672,11 +2689,6 @@
             socket.on('game_status', function (data) {
                 console.log('게임 상태 수신:', data);
 
-                if (window._rouletteAwaitingGameStatus) {
-                    window._rouletteAwaitingGameStatus = false;
-                    if (typeof hideRouletteLoading === 'function') hideRouletteLoading();
-                }
-
                 // 1. 이벤트 데이터 동기화 (게스트 및 초기 접속자용)
                 if (data.event_data && !window._operatorDraftMode) {
                     const ed = data.event_data;
@@ -2690,7 +2702,13 @@
                     if (ed.prizes !== undefined || ed.winners !== undefined) {
                         const prizeListEl = document.getElementById('prize-list');
                         if (prizeListEl) {
-                            if (ed.prizes !== undefined) prizeListEl.dataset.prizes = ed.prizes || '';
+                            if (ed.prizes !== undefined) {
+                                // Supabase 일시 오류로 빈 문자열이 들어오면 기존 내용을 지우지 않음
+                                var nextPr = (ed.prizes === null || ed.prizes === undefined) ? '' : String(ed.prizes);
+                                if (nextPr.trim() !== '' || !(prizeListEl.dataset.prizes || '').trim()) {
+                                    prizeListEl.dataset.prizes = nextPr;
+                                }
+                            }
                             if (ed.winners !== undefined) prizeListEl.dataset.winners = ed.winners || '';
 
                             renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
@@ -2698,7 +2716,16 @@
                     }
 
                     if (ed.memo !== undefined || ed.allow_duplicates !== undefined) {
-                        renderMemoWithPolicy(ed.memo, ed.allow_duplicates);
+                        // Supabase 일시 오류로 memo='' 이 들어오면 기존 메모를 지우지 않음
+                        var memoTextEl = document.getElementById('memo-text');
+                        var currMemo = memoTextEl ? String(memoTextEl.textContent || '').trim() : '';
+                        var nextMemo = (ed.memo === null || ed.memo === undefined) ? '' : String(ed.memo);
+                        if (nextMemo.trim() !== '' || !currMemo) {
+                            renderMemoWithPolicy(nextMemo, ed.allow_duplicates);
+                        } else if (ed.allow_duplicates !== undefined) {
+                            // 메모는 유지하되 정책 문구만 바뀌는 경우
+                            renderMemoWithPolicy(currMemo, ed.allow_duplicates);
+                        }
                     }
 
                     if (ed.participant_display_list && ed.participant_display_list.length) {
@@ -2712,6 +2739,22 @@
                         applyRouletteEventEnded(ed.roulette_closed_message);
                     } else if (window._rouletteEventClosed) {
                         clearRouletteEventEndedState();
+                    }
+
+                    // 이벤트 전환 로딩은 실제 데이터가 채워질 때까지 유지
+                    if (window._rouletteAwaitingGameStatus) {
+                        var now = Date.now();
+                        var maxWait = window._rouletteSwitchMaxWaitMs || 12000;
+                        var expired = window._rouletteSwitchStartedAt && (now - window._rouletteSwitchStartedAt > maxWait);
+                        if (_rouletteEventSwitchReady(ed) || expired) {
+                            window._rouletteAwaitingGameStatus = false;
+                            window._rouletteSwitchTargetKey = '';
+                            window._rouletteSwitchStartedAt = 0;
+                            if (typeof hideRouletteLoading === 'function') hideRouletteLoading();
+                            if (expired && typeof window.opSetStatus === 'function') {
+                                window.opSetStatus('동기화가 지연되고 있습니다. 네트워크 상태를 확인해 주세요.', true);
+                            }
+                        }
                     }
                 } else if (data.event_data && window._operatorDraftMode) {
                     console.log('[Socket] game_status 이벤트 데이터 동기화 생략 (운영자 신규 작성 모드)');
@@ -3061,7 +3104,13 @@
 
                 const prizeListEl = document.getElementById('prize-list');
                 if (prizeListEl) {
-                    if (data.prizes !== undefined) prizeListEl.dataset.prizes = data.prizes || "";
+                    var prevWinners = prizeListEl.dataset.winners || "";
+                    if (data.prizes !== undefined) {
+                        var nextPr = (data.prizes === null || data.prizes === undefined) ? "" : String(data.prizes);
+                        if (nextPr.trim() !== "" || !(prizeListEl.dataset.prizes || "").trim()) {
+                            prizeListEl.dataset.prizes = nextPr;
+                        }
+                    }
                     if (data.winners !== undefined) prizeListEl.dataset.winners = data.winners || "";
                     // 게임 중이라도 사은품 목록은 항상 최신화 (당첨자 표시를 위해)
                     renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
@@ -3079,7 +3128,7 @@
                     }
 
                     // 당첨자가 포함된 업데이트인 경우 10초 대기, 아니면 기존 2초 대기
-                    const hasNewWinner = data.winners && data.winners !== prizeListEl.dataset.winners;
+                    const hasNewWinner = (data.winners !== undefined) && String(data.winners || '') !== String(prevWinners || '');
                     const delay = hasNewWinner ? 10000 : 2000;
 
                     console.log(`이벤트 설정 변경 감지: 자동 새로고침 예약 (${delay}ms)`);
@@ -3089,7 +3138,14 @@
                     // 게임 중일 때는 DOM만 업데이트
                     if (data.title) document.getElementById('event-title-display').innerText = data.title;
                     if (data.memo !== undefined || data.allow_duplicates !== undefined) {
-                        renderMemoWithPolicy(data.memo, data.allow_duplicates);
+                        var memoTextEl = document.getElementById('memo-text');
+                        var currMemo = memoTextEl ? String(memoTextEl.textContent || '').trim() : '';
+                        var nextMemo = (data.memo === null || data.memo === undefined) ? '' : String(data.memo);
+                        if (nextMemo.trim() !== '' || !currMemo) {
+                            renderMemoWithPolicy(nextMemo, data.allow_duplicates);
+                        } else if (data.allow_duplicates !== undefined) {
+                            renderMemoWithPolicy(currMemo, data.allow_duplicates);
+                        }
                     }
                 }
             });

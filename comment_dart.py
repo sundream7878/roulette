@@ -958,15 +958,20 @@ def handle_request_game_status():
             duration_left = (target_time - now).total_seconds()
             
             # 클라이언트에게 게임 상태, 회전 정보, 남은 시간 및 이벤트 데이터 전송
-            socketio.emit('game_status', {
-                'target_time': target_time.isoformat(),
-                'final_winner': active_game.get('final_winner'),
-                'is_running': active_game.get('running', False),
-                'finalAngle': active_game.get('current_angle', 0),
-                'duration_left': duration_left,
-                'total_duration': active_game.get('total_duration', 0),
-                'event_data': active_event_data
-            }, namespace='/')
+            socketio.emit(
+                'game_status',
+                {
+                    'target_time': target_time.isoformat(),
+                    'final_winner': active_game.get('final_winner'),
+                    'is_running': active_game.get('running', False),
+                    'finalAngle': active_game.get('current_angle', 0),
+                    'duration_left': duration_left,
+                    'total_duration': active_game.get('total_duration', 0),
+                    'event_data': active_event_data,
+                },
+                namespace='/',
+                to=request.sid,
+            )
             
             # 진행 중인 게임이 있으므로 start_game 이벤트도 전송
             socketio.emit('start_game', {
@@ -979,19 +984,27 @@ def handle_request_game_status():
             return
         else:
             # 게임이 이미 종료됨 - 결과 및 이벤트 데이터 전송
-            socketio.emit('game_status', {
-                'target_time': target_time.isoformat(),
-                'final_winner': active_game.get('final_winner'),
-                'is_running': False,
-                'event_data': active_event_data
-            }, namespace='/')
+            socketio.emit(
+                'game_status',
+                {
+                    'target_time': target_time.isoformat(),
+                    'final_winner': active_game.get('final_winner'),
+                    'is_running': False,
+                    'event_data': active_event_data,
+                },
+                namespace='/',
+                to=request.sid,
+            )
             print("이미 종료된 게임 정보 전송")
             return
     
-    # 진행 중인 게임이 없는 경우에도 이벤트 데이터는 보냄 (동기화)
-    socketio.emit('game_status', {
-        'event_data': active_event_data
-    }, namespace='/')
+    # 진행 중인 게임이 없는 경우에도 이벤트 데이터는 보냄 (요청한 클라이언트만)
+    socketio.emit(
+        'game_status',
+        {'event_data': active_event_data},
+        namespace='/',
+        to=request.sid,
+    )
     print("진행 중인 게임 없음 (동기화 데이터 전송)")
         
 def calculate_winner_at_angle(angle, participants_list):

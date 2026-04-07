@@ -174,6 +174,67 @@
             text-decoration: none;
         }
 
+        #roulette-loading-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 10050;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            background: rgba(33, 33, 33, 0.55);
+            backdrop-filter: blur(2px);
+            -webkit-backdrop-filter: blur(2px);
+        }
+
+        #roulette-loading-overlay.is-visible {
+            display: flex;
+        }
+
+        #roulette-loading-card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 28px 32px;
+            max-width: 92vw;
+            width: 380px;
+            text-align: center;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(76, 175, 80, 0.35);
+        }
+
+        #roulette-loading-card .spinner {
+            width: 44px;
+            height: 44px;
+            margin: 0 auto 16px;
+            border: 4px solid #e8f5e9;
+            border-top-color: #4CAF50;
+            border-radius: 50%;
+            animation: roulette-spin 0.85s linear infinite;
+        }
+
+        @keyframes roulette-spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        #roulette-loading-message {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #2e7d32;
+            line-height: 1.55;
+            margin: 0;
+        }
+
+        #roulette-loading-hint {
+            display: block;
+            margin-top: 10px;
+            font-size: 0.88rem;
+            font-weight: 500;
+            color: #666;
+            line-height: 1.45;
+        }
+
         #main-container {
             display: flex;
             justify-content: center;
@@ -747,6 +808,13 @@
 </head>
 
 <body>
+    <div id="roulette-loading-overlay" aria-live="polite" aria-busy="false" role="status">
+        <div id="roulette-loading-card">
+            <div class="spinner" aria-hidden="true"></div>
+            <p id="roulette-loading-message">불러오는 중입니다…</p>
+            <span id="roulette-loading-hint">버그가 아니라 서버와 동기화하는 시간입니다. 잠시만 기다려 주세요.</span>
+        </div>
+    </div>
     <div id="header">
         <div class="header-title-row">
             <h1 id="event-title-display">{{ title if title else '썬드림 룰렛 추첨 이벤트' }}</h1>
@@ -1415,14 +1483,31 @@
                 if (!v) return;
                 if (v === opActiveKey) return;
                 opSetStatus('선택한 이벤트로 전환 중...');
+                window._rouletteAwaitingGameStatus = true;
+                if (typeof window.showRouletteLoading === 'function') {
+                    window.showRouletteLoading(
+                        '이벤트를 전환하는 중입니다.',
+                        '명단·사은품·원판 데이터를 서버와 맞추는 중입니다. 오류가 아니니 잠시만 기다려 주세요.'
+                    );
+                }
                 fetch('/api/operator/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ event_key: v }) })
                     .then(function (r) { return r.json(); }).then(function (d) {
-                        if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
+                        if (d.error) {
+                            if (typeof window.forceHideRouletteLoading === 'function') window.forceHideRouletteLoading();
+                            opSetStatus(opFormatApiError(d), true);
+                            return;
+                        }
                         opApplySelectPayload(d);
                         if (window.socket && window.socket.connected) {
+                            window._rouletteAwaitingGameStatus = true;
                             window.socket.emit('request_game_status');
+                        } else {
+                            if (typeof window.forceHideRouletteLoading === 'function') window.forceHideRouletteLoading();
                         }
-                    }).catch(function (e) { opSetStatus('오류: ' + e, true); });
+                    }).catch(function (e) {
+                        if (typeof window.forceHideRouletteLoading === 'function') window.forceHideRouletteLoading();
+                        opSetStatus('오류: ' + e, true);
+                    });
             });
         }
         opRefreshHistory();
@@ -1458,6 +1543,62 @@
         let memoPolicyAllowDuplicates = {% if allow_duplicates_dash %}true{% else %}false{% endif %};
         let startRequestInFlight = false;
         let startRequestTimeout = null;
+
+        (function initRouletteLoadingUi() {
+            var overlay = document.getElementById('roulette-loading-overlay');
+            var msgEl = document.getElementById('roulette-loading-message');
+            var hintEl = document.getElementById('roulette-loading-hint');
+            var safetyTimer = null;
+            var defaultHint = hintEl ? hintEl.textContent : '';
+
+            window._rouletteAwaitingGameStatus = false;
+
+            function clearSafety() {
+                if (safetyTimer) {
+                    clearTimeout(safetyTimer);
+                    safetyTimer = null;
+                }
+            }
+
+            window.showRouletteLoading = function (message, hint) {
+                if (!overlay) return;
+                if (msgEl && message) msgEl.textContent = message;
+                if (hintEl) hintEl.textContent = hint || defaultHint;
+                overlay.classList.add('is-visible');
+                overlay.setAttribute('aria-busy', 'true');
+                clearSafety();
+                safetyTimer = setTimeout(function () {
+                    if (typeof window.forceHideRouletteLoading === 'function') {
+                        window.forceHideRouletteLoading();
+                    }
+                    console.warn('[roulette] 로딩 표시 안전 타임아웃(25초)');
+                }, 25000);
+            };
+
+            window.hideRouletteLoading = function () {
+                if (!overlay || !overlay.classList.contains('is-visible')) return;
+                overlay.classList.remove('is-visible');
+                overlay.removeAttribute('aria-busy');
+                clearSafety();
+            };
+
+            window.forceHideRouletteLoading = function () {
+                if (!overlay) return;
+                overlay.classList.remove('is-visible');
+                overlay.removeAttribute('aria-busy');
+                clearSafety();
+                window._rouletteAwaitingGameStatus = false;
+            };
+
+            var isGuestView = document.getElementById('guest-current-time') !== null;
+            if (isGuestView) {
+                window._rouletteAwaitingGameStatus = true;
+                window.showRouletteLoading(
+                    '이벤트 화면을 준비하는 중입니다.',
+                    '서버·DB와 동기화하는 동안 잠시 걸릴 수 있습니다. 오류가 아니니 조작을 잠시 멈춰 주세요.'
+                );
+            }
+        })();
 
         // 오디오 관련 변수
         let beepSound = null;
@@ -1873,6 +2014,9 @@
 
             socket.on('disconnect', function () {
                 console.log('서버와 연결이 끊어졌습니다.');
+                if (typeof window.forceHideRouletteLoading === 'function') {
+                    window.forceHideRouletteLoading();
+                }
                 startRequestInFlight = false;
                 if (startRequestTimeout) {
                     clearTimeout(startRequestTimeout);
@@ -2263,6 +2407,11 @@
             });
             socket.on('game_status', function (data) {
                 console.log('게임 상태 수신:', data);
+
+                if (window._rouletteAwaitingGameStatus) {
+                    window._rouletteAwaitingGameStatus = false;
+                    if (typeof hideRouletteLoading === 'function') hideRouletteLoading();
+                }
 
                 // 1. 이벤트 데이터 동기화 (게스트 및 초기 접속자용)
                 if (data.event_data && !window._operatorDraftMode) {

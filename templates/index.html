@@ -1631,8 +1631,14 @@
                         var expectedFromParticipants = parseInt(d.participant_count || 0, 10);
                         window._rouletteSwitchExpectedParticipants = Math.max(expectedFromAllowed, expectedFromParticipants);
                         opApplySelectPayload(d);
+                        // 체감 속도 개선: /select 응답 도착 시 바로 화면 반영 완료로 간주하고 로딩 종료
+                        window._rouletteAwaitingGameStatus = false;
+                        window._rouletteSwitchTargetKey = '';
+                        window._rouletteSwitchStartedAt = 0;
+                        window._rouletteSwitchExpectedParticipants = 0;
+                        if (typeof hideRouletteLoading === 'function') hideRouletteLoading();
                         if (window.socket && window.socket.connected) {
-                            window._rouletteAwaitingGameStatus = true;
+                            // 게임 진행/타이머 동기화는 백그라운드로 보강 (로딩 블로킹 금지)
                             window.socket.emit('request_game_status');
                         } else {
                             if (typeof window.forceHideRouletteLoading === 'function') window.forceHideRouletteLoading();

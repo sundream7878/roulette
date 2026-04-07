@@ -964,7 +964,9 @@ def handle_request_game_status():
         try:
             active_url = get_active_url()
             if active_url:
-                participants_dict, last_id, all_commenter_list, title, prizes, memo, winners, allow_duplicates, _, _ = db.get_data(active_url)
+                participants_dict, last_id, all_commenter_list, title, prizes, memo, winners, allow_duplicates, _, _ = db.get_data(
+                    active_url, include_commenters=False
+                )
 
                 p_list_for_roulette = []
                 if participants_dict:

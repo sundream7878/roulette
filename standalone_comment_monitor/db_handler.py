@@ -408,7 +408,11 @@ class CommentDatabase:
         print(f"DEBUG: [save_data_blocking] failed: {last_err}")
         return False, last_err
 
-    def get_data(self, event_id: str) -> Tuple[Dict, str, List, str, str, str, str, bool, str, Optional[str]]:
+    def get_data(
+        self,
+        event_id: str,
+        include_commenters: bool = True,
+    ) -> Tuple[Dict, str, List, str, str, str, str, bool, str, Optional[str]]:
         """Supabase에서 이벤트 데이터 로드."""
         participants = {}
         all_commenters = []
@@ -443,11 +447,12 @@ class CommentDatabase:
                 for p in p_res.data or []:
                     participants[p["author"]] = (p["count"], p.get("created_at"))
 
-                c_res = self.supabase.table("commenters").select("*").eq(self._commenter_fk_col, event_id).execute()
-                for c in c_res.data or []:
-                    all_commenters.append(
-                        {"name": c["author"], "created_at": c.get("created_at")}
-                    )
+                if include_commenters:
+                    c_res = self.supabase.table("commenters").select("*").eq(self._commenter_fk_col, event_id).execute()
+                    for c in c_res.data or []:
+                        all_commenters.append(
+                            {"name": c["author"], "created_at": c.get("created_at")}
+                        )
             else:
                 print(f"DEBUG: [get_data] No post in Supabase for {event_id}")
         except Exception as e:

@@ -304,7 +304,10 @@ def api_select():
     ok, err_detail = _db().set_active_event_id_blocking(key)
     if not ok:
         return _operator_storage_error_response(err_detail)
-    participants, _, _, title, prizes, memo, winners, allow_duplicates, allowed_list, event_at = _db().get_data(key)
+    # 히스토리 전환 응답은 commenters 전체 조회가 필요 없어 빠른 경로 사용
+    participants, _, _, title, prizes, memo, winners, allow_duplicates, allowed_list, event_at = _db().get_data(
+        key, include_commenters=False
+    )
     return jsonify({
         "ok": True,
         "event_key": key,

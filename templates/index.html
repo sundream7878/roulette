@@ -730,6 +730,18 @@
             cursor: pointer;
             font-size: 13px;
         }
+
+        .op-btn-delete {
+            background: #c62828;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 13px;
+            margin-left: 8px;
+        }
     </style>
     <link rel="icon" href="data:,">
 </head>
@@ -890,6 +902,7 @@
             <select id="op-event-history" size="7"></select>
             <div style="margin-top:8px;">
                 <button type="button" class="op-btn-reset" onclick="opResetWinnersFromHistory()">선택 이벤트 당첨자 초기화 (새 ID)</button>
+                <button type="button" class="op-btn-delete" onclick="opDeleteSelectedEvent()">선택 이벤트 삭제</button>
             </div>
         </div>
         <div class="op-row">
@@ -1156,6 +1169,72 @@
                         if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
                         opApplySelectPayload(d);
                         opSetStatus('당첨자 초기화 완료: 새 이벤트 ID로 전환했습니다.', false);
+                    });
+                })
+                .catch(function (e) { opSetStatus('오류: ' + e, true); });
+        };
+        window.opDeleteSelectedEvent = function () {
+            var sel = document.getElementById('op-event-history');
+            var selectedKey = sel && sel.value ? String(sel.value).trim() : '';
+            if (!selectedKey) {
+                opSetStatus('먼저 히스토리에서 이벤트를 선택해 주세요.', true);
+                return;
+            }
+            if (!confirm('선택 이벤트를 DB에서 완전 삭제할까요?\n참가자/댓글/포스트 데이터가 함께 삭제됩니다.')) return;
+
+            opSetStatus('이벤트 삭제 중...');
+            fetch('/api/operator/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ event_key: selectedKey })
+            })
+                .then(function (r) {
+                    return r.json().then(function (d) {
+                        if (!r.ok) {
+                            opSetStatus(opFormatApiError(d, '삭제 실패 (' + r.status + ')'), true);
+                            return;
+                        }
+                        if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
+
+                        if (d.next_active_event_key) {
+                            fetch('/api/operator/select', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'same-origin',
+                                body: JSON.stringify({ event_key: d.next_active_event_key })
+                            })
+                                .then(function (r2) { return r2.json(); })
+                                .then(function (d2) {
+                                    if (d2 && !d2.error) {
+                                        opApplySelectPayload(d2);
+                                    }
+                                    opSetStatus('선택 이벤트를 삭제했고, 다음 이벤트로 전환했습니다.', false);
+                                })
+                                .catch(function () {
+                                    opSetStatus('삭제는 완료됐지만 다음 이벤트 전환 중 오류가 있었습니다.', true);
+                                });
+                        } else {
+                            var hid = document.getElementById('op-event-key');
+                            if (hid) hid.value = '';
+                            opActiveKey = '';
+                            window.rouletteActiveKey = '';
+                            var badge = document.getElementById('op-id-badge');
+                            if (badge) badge.textContent = '이벤트 ID · —';
+                            document.getElementById('op-title').value = '';
+                            document.getElementById('op-prizes').value = '';
+                            document.getElementById('op-memo').value = '';
+                            document.getElementById('op-allow-dup').checked = false;
+                            document.getElementById('op-allowed-list').value = '';
+                            opUpdateParticipantsTotalFromText('');
+                            var eat = document.getElementById('op-event-at');
+                            if (eat) {
+                                eat.value = '';
+                                if (eat._flatpickr) eat._flatpickr.clear();
+                            }
+                            opSetStatus('선택 이벤트를 삭제했습니다. 남은 이벤트가 없습니다.', false);
+                        }
+                        opRefreshHistory({ skipEmptyStatus: true });
                     });
                 })
                 .catch(function (e) { opSetStatus('오류: ' + e, true); });

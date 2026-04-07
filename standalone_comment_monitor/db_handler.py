@@ -185,11 +185,42 @@ class CommentDatabase:
     def clear_data(self, event_id: str):
         threading.Thread(target=self._sync_clear_supabase, args=(event_id,), daemon=True).start()
 
-    @retry_supabase
-    def _sync_clear_supabase(self, event_id):
+    def _sync_clear_supabase_core(self, event_id):
         self.supabase.table("participants").delete().eq(self._participant_fk_col, event_id).execute()
         self.supabase.table("commenters").delete().eq(self._commenter_fk_col, event_id).execute()
         self.supabase.table("posts").delete().eq(self._post_key_col, event_id).execute()
+
+    @retry_supabase
+    def _sync_clear_supabase(self, event_id):
+        self._sync_clear_supabase_core(event_id)
+        return True
+
+    def clear_data_blocking(self, event_id: str) -> Tuple[bool, Optional[str]]:
+        last_err: Optional[str] = None
+        for attempt in range(_BLOCKING_SAVE_ATTEMPTS):
+            try:
+                self._sync_clear_supabase_core(event_id)
+                return True, None
+            except Exception as e:
+                last_err = str(e)
+                if attempt < _BLOCKING_SAVE_ATTEMPTS - 1:
+                    delay = min(
+                        _BLOCKING_SAVE_BASE_DELAY * (2**attempt),
+                        _BLOCKING_SAVE_MAX_DELAY,
+                    )
+                    time.sleep(delay)
+        try:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            log_file = os.path.join(base_dir, "monitor_debug.log")
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(
+                    f"[{datetime.now()}] ERROR: [Blocking clear failed after "
+                    f"{_BLOCKING_SAVE_ATTEMPTS} tries] clear_data_blocking: {last_err}\n"
+                )
+        except Exception:
+            pass
+        print(f"DEBUG: [clear_data_blocking] failed: {last_err}")
+        return False, last_err
 
     def save_data(
         self,

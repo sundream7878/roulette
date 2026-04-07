@@ -255,6 +255,43 @@ def api_reset_winners():
     )
 
 
+@operator_bp.post("/delete")
+@login_required
+def api_delete():
+    """선택 이벤트를 DB에서 완전 삭제. 활성 이벤트를 지우면 최신 이벤트를 자동 활성화."""
+    data = request.get_json(silent=True) or {}
+    raw = (data.get("event_key") or "").strip()
+    if not raw:
+        return jsonify({"error": "event_key 필요"}), 400
+    key = normalize_event_id(raw)
+
+    active_key = _db().get_active_event_id()
+    active_key = normalize_event_id(active_key) if active_key else None
+
+    ok_del, err_del = _db().clear_data_blocking(key)
+    if not ok_del:
+        return _operator_storage_error_response(err_del)
+
+    next_active_key = None
+    if active_key == key:
+        rows = _db().list_events(limit=1)
+        if rows:
+            row = rows[0] or {}
+            next_active_key = row.get("id") or row.get("url")
+            if next_active_key:
+                ok_act, err_act = _db().set_active_event_id_blocking(next_active_key)
+                if not ok_act:
+                    return _operator_storage_error_response(err_act)
+
+    return jsonify(
+        {
+            "ok": True,
+            "deleted_event_key": key,
+            "next_active_event_key": next_active_key,
+        }
+    )
+
+
 @operator_bp.post("/select")
 @login_required
 def api_select():

@@ -204,6 +204,57 @@ def api_register_new():
     )
 
 
+@operator_bp.post("/reset_winners")
+@login_required
+def api_reset_winners():
+    """선택 이벤트 내용을 복제하되 당첨자만 초기화하여 새 ID로 생성/활성화."""
+    data = request.get_json(silent=True) or {}
+    raw = (data.get("event_key") or "").strip()
+    source_key = normalize_event_id(raw) if raw else _db().get_active_event_id()
+    if not source_key:
+        return jsonify({"error": "초기화할 event_key 가 없습니다."}), 400
+
+    _, _, _, title, prizes, memo, _, allow_duplicates, allowed_list, event_at = _db().get_data(source_key)
+    if allowed_list is not None:
+        parse_allowed_list_text(allowed_list or "")
+
+    new_key = _db().next_event_id(event_at)
+    ok_save, err_save = _db().save_data_blocking(
+        new_key,
+        None,
+        "",
+        title=title or "",
+        prizes=prizes or "",
+        memo=memo or "",
+        winners="",  # 핵심: 당첨자만 초기화
+        allow_duplicates=bool(allow_duplicates),
+        allowed_list=allowed_list or "",
+        event_at=event_at,
+    )
+    if not ok_save:
+        return _operator_storage_error_response(err_save)
+
+    ok_act, err_act = _db().set_active_event_id_blocking(new_key)
+    if not ok_act:
+        return _operator_storage_error_response(err_act)
+
+    return jsonify(
+        {
+            "ok": True,
+            "source_event_key": source_key,
+            "event_key": new_key,
+            "title": title or "",
+            "prizes": prizes or "",
+            "memo": memo or "",
+            "winners": "",
+            "allow_duplicates": bool(allow_duplicates),
+            "allowed_list_text": allowed_list or "",
+            "event_at": event_at or "",
+            "reset_winners": True,
+        }
+    )
+
+
 @operator_bp.post("/select")
 @login_required
 def api_select():

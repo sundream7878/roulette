@@ -719,6 +719,17 @@
             background: #6a1b9a;
             color: #fff;
         }
+
+        .op-btn-reset {
+            background: #ef6c00;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 13px;
+        }
     </style>
     <link rel="icon" href="data:,">
 </head>
@@ -877,6 +888,9 @@
         <div class="op-row" style="margin-top:20px">
             <label>히스토리에서 선택 <span style="font-weight:400;color:#888">(선택 즉시 활성화)</span></label>
             <select id="op-event-history" size="7"></select>
+            <div style="margin-top:8px;">
+                <button type="button" class="op-btn-reset" onclick="opResetWinnersFromHistory()">선택 이벤트 당첨자 초기화 (새 ID)</button>
+            </div>
         </div>
         <div class="op-row">
             <label>이벤트 일시 <span style="font-weight:400;color:#888">(상단 제목 옆에 표시)</span></label>
@@ -1114,6 +1128,34 @@
                         window._operatorDraftMode = true;
                         opRefreshHistory({ skipEmptyStatus: true });
                         opSetStatus('새 이벤트 작성 준비 완료. 내용을 입력한 뒤 저장하세요.', false);
+                    });
+                })
+                .catch(function (e) { opSetStatus('오류: ' + e, true); });
+        };
+        window.opResetWinnersFromHistory = function () {
+            var sel = document.getElementById('op-event-history');
+            var selectedKey = sel && sel.value ? String(sel.value).trim() : '';
+            if (!selectedKey) {
+                opSetStatus('먼저 히스토리에서 이벤트를 선택해 주세요.', true);
+                return;
+            }
+            if (!confirm('선택 이벤트 내용을 유지한 새 ID를 만들고 당첨자만 초기화할까요?')) return;
+            opSetStatus('당첨자 초기화 중...');
+            fetch('/api/operator/reset_winners', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ event_key: selectedKey })
+            })
+                .then(function (r) {
+                    return r.json().then(function (d) {
+                        if (!r.ok) {
+                            opSetStatus(opFormatApiError(d, '초기화 실패 (' + r.status + ')'), true);
+                            return;
+                        }
+                        if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
+                        opApplySelectPayload(d);
+                        opSetStatus('당첨자 초기화 완료: 새 이벤트 ID로 전환했습니다.', false);
                     });
                 })
                 .catch(function (e) { opSetStatus('오류: ' + e, true); });

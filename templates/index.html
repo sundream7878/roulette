@@ -1244,6 +1244,12 @@
             });
             return out;
         }
+        function opSplitText(text) {
+            return String(text || '')
+                .split(',')
+                .map(function (s) { return String(s || '').trim(); })
+                .filter(function (s) { return !!s; });
+        }
         function opRenderParticipantsListFromAllowed(allowedPairs, confirmedSet) {
             var allContainer = document.getElementById('all-participants-container');
             if (!allContainer) return;
@@ -1315,7 +1321,7 @@
                 }
             }
             var allowedPairs = opParseAllowedListPairs(d.allowed_list_text || '');
-            var winnerSet = new Set(splitText(d.winners || ''));
+            var winnerSet = new Set(opSplitText(d.winners || ''));
             var roulettePairs = (!!d.allow_duplicates)
                 ? allowedPairs.slice()
                 : allowedPairs.filter(function (row) { return !winnerSet.has(row[0]); });

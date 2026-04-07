@@ -1784,6 +1784,18 @@
                 if (targetTimeInput) targetTimeInput.disabled = false;
             });
 
+            function keepActivePrizeNearMiddle(prizeListEl, activeItem, smooth) {
+                if (!prizeListEl || !activeItem) return;
+                const maxScrollTop = Math.max(0, prizeListEl.scrollHeight - prizeListEl.clientHeight);
+                const targetTop = activeItem.offsetTop - ((prizeListEl.clientHeight - activeItem.offsetHeight) / 2);
+                const nextTop = Math.max(0, Math.min(maxScrollTop, targetTop));
+                if (smooth) {
+                    prizeListEl.scrollTo({ top: nextTop, behavior: 'smooth' });
+                } else {
+                    prizeListEl.scrollTop = nextTop;
+                }
+            }
+
             socket.on('start_game', function (data) {
                 console.log('게임 시작:', data);
                 startRequestInFlight = false;
@@ -1836,8 +1848,8 @@
                     // 해당 인덱스의 사은품 항목에 강조 효과 적용
                     if (allPrizeItems[nextPrizeIndex]) {
                         allPrizeItems[nextPrizeIndex].classList.add('drawing-active');
-                        // 해당 항목이 보이도록 스크롤 (필요시)
-                        allPrizeItems[nextPrizeIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        // 진행 중에는 활성 항목을 목록 중앙 근처에 유지
+                        keepActivePrizeNearMiddle(prizeListEl, allPrizeItems[nextPrizeIndex], true);
                         console.log(`추첨 중인 사은품 강조: ${pList[nextPrizeIndex]}`);
                     }
                 }
@@ -2460,6 +2472,10 @@
                         html += `<div class="prize-item" style="color:#2e7d32; font-weight:700;">(사은품 모두 소진)</div>`;
                     }
                     prizeListEl.innerHTML = html;
+                    const activePrizeItem = prizeListEl.querySelector('.prize-item.drawing-active');
+                    if (activePrizeItem) {
+                        keepActivePrizeNearMiddle(prizeListEl, activePrizeItem, false);
+                    }
                 }
             }
 

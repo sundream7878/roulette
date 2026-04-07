@@ -585,6 +585,38 @@ def handle_end_roulette_event(data=None):
     )
     print(f"DEBUG: [end_roulette_event] closed for {active_url}")
 
+
+@socketio.on('cancel_roulette_event')
+def handle_cancel_roulette_event(data=None):
+    """운영자: 현장 종료 안내를 걷어 다시 룰렛 운영 가능 상태로."""
+    if not current_user.is_authenticated:
+        return
+    active_url = get_active_url()
+    if not active_url:
+        socketio.emit(
+            'error',
+            {'message': '활성 이벤트가 없습니다. 히스토리에서 이벤트를 선택해 주세요.'},
+            namespace='/',
+            to=request.sid,
+        )
+        return
+    if active_url not in roulette_event_closed:
+        socketio.emit(
+            'error',
+            {'message': '현재 현장 종료 상태가 아닙니다.'},
+            namespace='/',
+            to=request.sid,
+        )
+        return
+    del roulette_event_closed[active_url]
+    socketio.emit(
+        'roulette_event_resumed',
+        {'event_id': active_url},
+        namespace='/',
+    )
+    print(f"DEBUG: [cancel_roulette_event] resumed for {active_url}")
+
+
 @socketio.on('start_rotation')
 def handle_start_rotation(data):
     """

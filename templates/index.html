@@ -887,7 +887,8 @@
             <div class="time-control-item">
                 <span class="time-label">슈팅시간 설정:</span>
                 <input type="text" id="target-time" placeholder="HH:MM:SS" value="">
-                <button id="plus-minute-button" type="button">+1분</button>
+                <button id="plus-minute-button" type="button">+60초</button>
+                <button id="plus-50sec-button" type="button">+50초</button>
                 <button id="start-button" onclick="startRotation()">시작</button>
             </div>
             <div class="time-control-item">
@@ -1047,7 +1048,7 @@
             <label><input type="checkbox" id="op-allow-dup" {% if allow_duplicates_dash %}checked{% endif %} /> 중복 당첨 허용</label>
         </div>
         <div class="op-row" style="border-top:1px solid #e0e0e0;padding-top:16px;margin-top:12px;">
-            <label>룰렛 현장 종료 <span style="font-weight:400;color:#888">(원판 중앙 안내 표시 · 시작·+1분·슈팅시간 입력 비활성 · 게스트 화면 동기화)</span></label>
+            <label>룰렛 현장 종료 <span style="font-weight:400;color:#888">(원판 중앙 안내 표시 · 시작·+60초/+50초·슈팅시간 입력 비활성 · 게스트 화면 동기화)</span></label>
             <input type="text" id="op-roulette-end-message" placeholder="오늘 룰렛 이벤트 종료! 감사합니다" maxlength="500" style="width:100%;max-width:560px;margin-top:8px;padding:8px 10px;border-radius:6px;border:1px solid #ccc;" />
             <div style="margin-top:10px;">
                 <button type="button" class="op-btn-end-roulette" id="op-roulette-end-btn" onclick="opEndRouletteEvent()">룰렛 종료</button>
@@ -1525,7 +1526,7 @@
         };
 
         window.opEndRouletteEvent = function () {
-            if (!confirm('룰렛 이벤트를 현장에서 완전히 종료할까요?\n이후 이 이벤트에서는 「시작」「+1분」으로 원판을 돌릴 수 없습니다. (게스트 화면에도 동일하게 표시됩니다.)')) return;
+            if (!confirm('룰렛 이벤트를 현장에서 완전히 종료할까요?\n이후 이 이벤트에서는 「시작」「+60초」「+50초」으로 원판을 돌릴 수 없습니다. (게스트 화면에도 동일하게 표시됩니다.)')) return;
             var inp = document.getElementById('op-roulette-end-message');
             var msg = inp ? String(inp.value || '').trim() : '';
             if (!window.socket || !window.socket.connected) {
@@ -1547,7 +1548,7 @@
 
         window.opCancelRouletteEvent = function () {
             if (!window._rouletteEventClosed) return;
-            if (!confirm('원판 중앙의 종료 안내를 걷어내고 다시 「시작」「+1분」 등으로 운영할까요?')) return;
+            if (!confirm('원판 중앙의 종료 안내를 걷어내고 다시 「시작」「+60초」「+50초」 등으로 운영할까요?')) return;
             if (!window.socket || !window.socket.connected) {
                 opSetStatus('서버 연결이 없습니다. 새로고침 후 다시 시도해 주세요.', true);
                 return;
@@ -1808,13 +1809,12 @@
                 overlay.classList.add('event-ended');
             }
             var startBtn = document.getElementById('start-button');
-            var plusBtn = document.getElementById('plus-minute-button');
             var ti = document.getElementById('target-time');
             if (startBtn) {
                 startBtn.disabled = true;
                 startBtn.innerText = '종료됨';
             }
-            if (plusBtn) plusBtn.disabled = true;
+            if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(true);
             if (ti) ti.disabled = true;
             var prizeListEl = document.getElementById('prize-list');
             if (prizeListEl && typeof renderPrizes === 'function') {
@@ -1848,13 +1848,12 @@
             var nameEl = document.getElementById('winner-name-v2');
             if (nameEl) nameEl.style.display = 'block';
             var startBtn = document.getElementById('start-button');
-            var plusBtn = document.getElementById('plus-minute-button');
             var ti = document.getElementById('target-time');
             if (startBtn && !gameIsActive) {
                 startBtn.disabled = false;
                 startBtn.innerText = '시작';
             }
-            if (plusBtn && !gameIsActive) plusBtn.disabled = false;
+            if (!gameIsActive && typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
             if (ti && !gameIsActive) ti.disabled = false;
             if (typeof window.opRefreshRouletteEndControls === 'function') {
                 try { window.opRefreshRouletteEndControls(); } catch (e) {}
@@ -2105,8 +2104,18 @@
             memoContainer.style.display = '';
         }
 
-        // 시작 버튼 클릭 함수
-        function addOneMinuteToTargetTime() {
+        function getTimeAdjustButtons() {
+            return [
+                document.getElementById('plus-minute-button'),
+                document.getElementById('plus-50sec-button')
+            ].filter(function (b) { return !!b; });
+        }
+        function setTimeAdjustButtonsDisabled(disabled) {
+            getTimeAdjustButtons().forEach(function (b) { b.disabled = !!disabled; });
+        }
+        window.setTimeAdjustButtonsDisabled = setTimeAdjustButtonsDisabled;
+
+        function addSecondsToTargetTime(seconds, tag) {
             if (window._rouletteEventClosed) return;
             const input = document.getElementById('target-time');
             if (!input) return;
@@ -2118,14 +2127,22 @@
                 const parts = v.split(':').map(Number);
                 base.setHours(parts[0], parts[1], parts[2], 0);
             }
-            base.setSeconds(base.getSeconds() + 60);
+            base.setSeconds(base.getSeconds() + Number(seconds || 0));
             const hh = base.getHours().toString().padStart(2, '0');
             const mm = base.getMinutes().toString().padStart(2, '0');
             const ss = base.getSeconds().toString().padStart(2, '0');
             input.value = `${hh}:${mm}:${ss}`;
-            console.log('[+1분] target-time:', input.value);
+            console.log('[' + (tag || ('+' + String(seconds) + '초')) + '] target-time:', input.value);
+        }
+        // 시작 버튼 클릭 함수
+        function addOneMinuteToTargetTime() {
+            addSecondsToTargetTime(60, '+60초');
+        }
+        function addFiftySecondsToTargetTime() {
+            addSecondsToTargetTime(50, '+50초');
         }
         window.addOneMinuteToTargetTime = addOneMinuteToTargetTime;
+        window.addFiftySecondsToTargetTime = addFiftySecondsToTargetTime;
 
         function startRotation() {
             console.log('시작 버튼 클릭됨');
@@ -2134,7 +2151,6 @@
                 return;
             }
             const startBtn = document.getElementById('start-button');
-            const plusBtn = document.getElementById('plus-minute-button');
             if (!startBtn) return;
             if (startRequestInFlight) {
                 console.log('시작 요청 처리 중 - 중복 클릭 무시');
@@ -2147,7 +2163,7 @@
             startRequestInFlight = true;
             startBtn.disabled = true;
             startBtn.innerText = '시작 요청 중...';
-            if (plusBtn) plusBtn.disabled = true;
+            if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(true);
 
             stopAllSounds();
 
@@ -2157,7 +2173,7 @@
                 startRequestInFlight = false;
                 startBtn.disabled = false;
                 startBtn.innerText = '시작';
-                if (plusBtn) plusBtn.disabled = false;
+                if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                 return;
             }
 
@@ -2167,7 +2183,7 @@
                 startRequestInFlight = false;
                 startBtn.disabled = false;
                 startBtn.innerText = '시작';
-                if (plusBtn) plusBtn.disabled = false;
+                if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                 return;
             }
 
@@ -2192,13 +2208,12 @@
                 startRequestInFlight = false;
                 if (window._rouletteEventClosed) return;
                 const btn = document.getElementById('start-button');
-                const plus = document.getElementById('plus-minute-button');
                 const targetTimeInput = document.getElementById('target-time');
                 if (btn) {
                     btn.disabled = false;
                     btn.innerText = '시작';
                 }
-                if (plus) plus.disabled = false;
+                if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                 if (targetTimeInput) targetTimeInput.disabled = false;
             }, 5000);
         }
@@ -2208,6 +2223,10 @@
             const plusBtnOnLoad = document.getElementById('plus-minute-button');
             if (plusBtnOnLoad) {
                 plusBtnOnLoad.addEventListener('click', addOneMinuteToTargetTime);
+            }
+            const plus50BtnOnLoad = document.getElementById('plus-50sec-button');
+            if (plus50BtnOnLoad) {
+                plus50BtnOnLoad.addEventListener('click', addFiftySecondsToTargetTime);
             }
 
             stopAllSounds();
@@ -2301,13 +2320,12 @@
                 }
                 if (!window._rouletteEventClosed) {
                     const btn = document.getElementById('start-button');
-                    const plus = document.getElementById('plus-minute-button');
                     const targetTimeInput = document.getElementById('target-time');
                     if (btn) {
                         btn.disabled = false;
                         btn.innerText = '시작';
                     }
-                    if (plus) plus.disabled = false;
+                    if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                     if (targetTimeInput) targetTimeInput.disabled = false;
                 }
             });
@@ -2337,9 +2355,7 @@
                     document.getElementById('start-button').disabled = true;
                     document.getElementById('start-button').innerText = '진행 중...';
                 }
-                if (document.getElementById('plus-minute-button')) {
-                    document.getElementById('plus-minute-button').disabled = true;
-                }
+                if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(true);
 
                 // [추가] 새 게임 시작 시 이전 당첨자 오버레이 숨기기
                 const winnerOverlay = document.getElementById('winner-overlay');
@@ -2528,12 +2544,11 @@
 
                 // start-button cooldown logic
                 const startButton = document.getElementById('start-button');
-                const plusMinuteButton = document.getElementById('plus-minute-button');
                 const targetTimeInput = document.getElementById('target-time');
                 if (startButton) {
                     startButton.disabled = true;
                     if (targetTimeInput) targetTimeInput.disabled = true;
-                    if (plusMinuteButton) plusMinuteButton.disabled = true;
+                    if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(true);
 
                     let cooldown = 10;
                     startButton.innerText = `대기 중 (${cooldown}초)`;
@@ -2545,7 +2560,7 @@
                             startButton.disabled = false;
                             startButton.innerText = '시작';
                             if (targetTimeInput) targetTimeInput.disabled = false;
-                            if (plusMinuteButton) plusMinuteButton.disabled = false;
+                            if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                         } else {
                             startButton.innerText = `대기 중 (${cooldown}초)`;
                         }
@@ -2635,9 +2650,7 @@
                         document.getElementById('start-button').disabled = true;
                         document.getElementById('start-button').innerText = '종료됨';
                     }
-                    if (document.getElementById('plus-minute-button')) {
-                        document.getElementById('plus-minute-button').disabled = true;
-                    }
+                    if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(true);
                     const tix = document.getElementById('target-time');
                     if (tix) tix.disabled = true;
                     return;
@@ -2646,9 +2659,7 @@
                     document.getElementById('start-button').disabled = false;
                     document.getElementById('start-button').innerText = '시작';
                 }
-                if (document.getElementById('plus-minute-button')) {
-                    document.getElementById('plus-minute-button').disabled = false;
-                }
+                if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                 const targetTimeInput = document.getElementById('target-time');
                 if (targetTimeInput) targetTimeInput.disabled = false;
             });
@@ -2701,9 +2712,7 @@
                     document.getElementById('start-button').disabled = false;
                     document.getElementById('start-button').innerText = '시작';
                 }
-                if (document.getElementById('plus-minute-button')) {
-                    document.getElementById('plus-minute-button').disabled = false;
-                }
+                if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                 const targetTi = document.getElementById('target-time');
                 if (targetTi) targetTi.disabled = false;
             });

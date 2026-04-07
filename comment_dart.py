@@ -23,6 +23,7 @@ db = CommentDatabase()
 event_states = {}
 
 HAS_MONITOR = True  # Supabase/DB 이벤트·사전명단 사용
+_LAST_ACTIVE_EVENT_KEY = None  # Supabase 일시 장애 시 활성 이벤트 폴백 캐시
 
 
 def get_allowed_list(url=None):
@@ -96,13 +97,35 @@ def _event_at_input_local_value(iso_str):
 
 def get_active_url():
     """현재 활성화된 이벤트 URL을 가져옵니다."""
+    global _LAST_ACTIVE_EVENT_KEY
     if not HAS_MONITOR: return None
+    cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "active_event.txt")
     try:
         # DB에서 활성 URL 가져오기
         uid = db.get_active_event_id()
         if uid:
-            return normalize_event_id(uid)
-    except: pass
+            key = normalize_event_id(uid)
+            _LAST_ACTIVE_EVENT_KEY = key
+            try:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    f.write(str(key))
+            except Exception:
+                pass
+            return key
+    except Exception:
+        pass
+    # Supabase 일시 오류 시 마지막 성공 이벤트로 폴백 (운영 중 "참여자 없음" 오탐 방지)
+    if _LAST_ACTIVE_EVENT_KEY:
+        return _LAST_ACTIVE_EVENT_KEY
+    try:
+        if os.path.exists(cache_file):
+            with open(cache_file, "r", encoding="utf-8") as f:
+                cached = (f.read() or "").strip()
+            if cached:
+                _LAST_ACTIVE_EVENT_KEY = normalize_event_id(cached)
+                return _LAST_ACTIVE_EVENT_KEY
+    except Exception:
+        pass
     return None
 
 
@@ -640,7 +663,7 @@ def handle_start_rotation(data):
         if elapsed < 10:
             remaining = int(10 - elapsed)
             print(f"DEBUG: Cooldown active for {active_url}. {remaining}s left.")
-            socketio.emit('error', {'message': f'당첨자 발표 후 재설정까지 대기 시간이 필요합니다. ({remaining}초 남음)'}, namespace='/')
+            socketio.emit('error', {'message': f'당첨자 발표 후 재설정까지 대기 시간이 필요합니다. ({remaining}초 남음)'}, namespace='/', to=request.sid)
             return
     
     # 기존 게임 정보 초기화 또는 신규 생성
@@ -668,12 +691,12 @@ def handle_start_rotation(data):
         game['target_time'] = datetime.datetime.strptime(target_today_str, '%Y-%m-%d %H:%M:%S')
     except ValueError:
         print("DEBUG: Invalid time format:", t_str)
-        socketio.emit('error', {'message': '시간 형식이 잘못되었습니다.'}, namespace='/')
+        socketio.emit('error', {'message': '시간 형식이 잘못되었습니다.'}, namespace='/', to=request.sid)
         return
 
     print("DEBUG: now =", now, "target_time =", game['target_time'])
     if game['target_time'] <= now:
-        socketio.emit('error', {'message': '미래 시각을 입력해주세요.'}, namespace='/')
+        socketio.emit('error', {'message': '미래 시각을 입력해주세요.'}, namespace='/', to=request.sid)
         return
 
     # 지속 시간 계산
@@ -703,7 +726,7 @@ def handle_start_rotation(data):
     
     if not p_list:
         print("DEBUG: No participants available for rotation.")
-        socketio.emit('error', {'message': '참여자가 없습니다. 댓글을 확인해주세요.'}, namespace='/')
+        socketio.emit('error', {'message': '참여자가 없습니다. 댓글을 확인해주세요.'}, namespace='/', to=request.sid)
         return
 
     # 정확한 당첨자 계산 (화살표가 가리키는 섹터의 참가자)
@@ -806,7 +829,7 @@ def handle_confirm_winner(data=None):
                 dataset = db.get_data(active_url)
                 if not dataset:
                     print(f"WARNING: No dataset for {active_url}. Skipping confirmation.")
-                    socketio.emit('error', {'message': '이벤트 데이터를 찾을 수 없습니다.'}, namespace='/')
+                    socketio.emit('error', {'message': '이벤트 데이터를 찾을 수 없습니다.'}, namespace='/', to=request.sid)
                     return
 
                 participants, last_id, all_commenters, title, prizes, memo, current_winners_str, allow_duplicates, _, _ = dataset
@@ -833,7 +856,7 @@ def handle_confirm_winner(data=None):
 
                 if not participants:
                     print(f"WARNING: No participants found for {active_url}. Skipping confirmation.")
-                    socketio.emit('error', {'message': '이벤트 데이터를 찾을 수 없습니다.'}, namespace='/')
+                    socketio.emit('error', {'message': '이벤트 데이터를 찾을 수 없습니다.'}, namespace='/', to=request.sid)
                     return
 
                 print(f"DEBUG: Policy - Allow Duplicates: {allow_duplicates}, Participants count: {len(participants)}")
@@ -934,7 +957,7 @@ def handle_confirm_winner(data=None):
     else:
         # 게임 정보가 없거나 당첨자가 설정되지 않은 경우 오류 메시지 전송
         print("ERROR: 당첨자 정보를 찾을 수 없음")
-        socketio.emit('error', {'message': '당첨자 정보를 찾을 수 없습니다.'}, namespace='/')
+        socketio.emit('error', {'message': '당첨자 정보를 찾을 수 없습니다.'}, namespace='/', to=request.sid)
 
 @socketio.on('request_game_status')
 def handle_request_game_status():

@@ -1168,8 +1168,11 @@
                 ? allowedPairs.slice()
                 : allowedPairs.filter(function (row) { return !winnerSet.has(row[0]); });
             var confirmedAll = roulettePairs.map(function (row) { return row[0]; });
-            opRenderParticipantsListFromAllowed(allowedPairs, new Set(confirmedAll));
-            if (typeof updateParticipantsUI === 'function') {
+            // allowed_list 가 비어 있으면 DB participants 만 있는 경우가 있어, 여기서 명단을 지우지 않음 (game_status가 채움)
+            if (allowedPairs.length) {
+                opRenderParticipantsListFromAllowed(allowedPairs, new Set(confirmedAll));
+            }
+            if (typeof updateParticipantsUI === 'function' && roulettePairs.length) {
                 updateParticipantsUI(roulettePairs, null, confirmedAll);
             }
         }
@@ -2285,7 +2288,10 @@
                         renderMemoWithPolicy(ed.memo, ed.allow_duplicates);
                     }
 
-                    if (ed.participants) {
+                    if (ed.participant_display_list && ed.participant_display_list.length) {
+                        syncDomParticipantList(ed.participant_display_list, ed.confirmed_all);
+                    }
+                    if (ed.participants !== undefined) {
                         updateParticipantsUI(ed.participants, null, ed.confirmed_all);
                     }
                 } else if (data.event_data && window._operatorDraftMode) {
@@ -2410,6 +2416,52 @@
                     }
                 }
             });
+
+            function syncDomParticipantList(nameTicketPairs, confirmedAll) {
+                var allContainer = document.getElementById('all-participants-container');
+                if (!allContainer || !nameTicketPairs || !nameTicketPairs.length) return;
+                var confirmedSet = confirmedAll ? new Set(confirmedAll) : null;
+                Array.prototype.slice.call(allContainer.querySelectorAll('.all-participant-item, .participant-separator, .participants-empty')).forEach(function (el) {
+                    if (el && el.parentNode) el.parentNode.removeChild(el);
+                });
+                var confirmed = [];
+                var unconfirmed = [];
+                nameTicketPairs.forEach(function (row) {
+                    var nm = Array.isArray(row) ? row[0] : (row && row.name);
+                    var tk = Array.isArray(row) ? row[1] : (row && row.count);
+                    if (nm === undefined || nm === null) return;
+                    if (confirmedSet && confirmedSet.has(nm)) confirmed.push([nm, tk]);
+                    else unconfirmed.push([nm, tk]);
+                });
+                function appendRow(row, isC) {
+                    var item = document.createElement('div');
+                    item.className = 'all-participant-item' + (isC ? ' is-confirmed' : '');
+                    var badge = document.createElement('span');
+                    badge.className = 'confirmed-badge';
+                    badge.textContent = '✅';
+                    if (!isC) badge.style.visibility = 'hidden';
+                    var nameSpan = document.createElement('span');
+                    nameSpan.className = 'p-name';
+                    nameSpan.textContent = row[0];
+                    var ticketSpan = document.createElement('span');
+                    ticketSpan.className = 'p-tickets';
+                    ticketSpan.textContent = ' (' + String(row[1] != null ? row[1] : 1) + '장)';
+                    item.appendChild(badge);
+                    item.appendChild(nameSpan);
+                    item.appendChild(ticketSpan);
+                    allContainer.appendChild(item);
+                }
+                confirmed.forEach(function (row) { appendRow(row, true); });
+                if (confirmed.length > 0 && unconfirmed.length > 0) {
+                    var sep = document.createElement('div');
+                    sep.className = 'participant-separator';
+                    allContainer.appendChild(sep);
+                }
+                unconfirmed.forEach(function (row) { appendRow(row, false); });
+                var cntEl = document.getElementById('participants-total-count');
+                if (cntEl) cntEl.textContent = String(nameTicketPairs.length);
+            }
+            window.syncDomParticipantList = syncDomParticipantList;
 
             function updateConfirmedOnly(confirmed_all, p_list) {
                 const allContainer = document.getElementById('all-participants-container');

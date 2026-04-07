@@ -286,6 +286,21 @@ def guest_view():
             })
         # 정렬: 확정자 우선, 그 다음 가나다순
         allowed_info.sort(key=lambda x: (not x['is_confirmed'], _ko_first_name_key(x['name'])))
+        if not allowed_info and p_list:
+            for p in p_list:
+                name_norm = unicodedata.normalize("NFC", str(p[0]).strip())
+                tickets = int(p[1]) if len(p) > 1 else 1
+                is_confirmed = name_norm in all_confirmed_names
+                allowed_info.append(
+                    {
+                        "name": name_norm,
+                        "tickets": tickets,
+                        "is_confirmed": is_confirmed,
+                    }
+                )
+            allowed_info.sort(
+                key=lambda x: (not x["is_confirmed"], _ko_first_name_key(x["name"]))
+            )
     else:
         allowed_info = []
 
@@ -452,6 +467,22 @@ def index():
             })
         # 정렬: 확정자 우선, 그 다음 가나다순
         allowed_info.sort(key=lambda x: (not x['is_confirmed'], _ko_first_name_key(x['name'])))
+        # posts.allowed_list 가 비어 있어도 participants 테이블에만 명단이 있을 수 있음
+        if not allowed_info and p_list:
+            for p in p_list:
+                name_norm = unicodedata.normalize("NFC", str(p[0]).strip())
+                tickets = int(p[1]) if len(p) > 1 else 1
+                is_confirmed = name_norm in all_confirmed_names
+                allowed_info.append(
+                    {
+                        "name": name_norm,
+                        "tickets": tickets,
+                        "is_confirmed": is_confirmed,
+                    }
+                )
+            allowed_info.sort(
+                key=lambda x: (not x["is_confirmed"], _ko_first_name_key(x["name"]))
+            )
     else:
         allowed_info = []
 
@@ -877,6 +908,30 @@ def handle_request_game_status():
                     list(set(p_names) | set(won_names))
                     if (allow_duplicates != False) else list(set(p_names))
                 )
+
+                # 명단 UI 동기화: allowed_list 텍스트 없이 participants DB만 있는 경우 대비
+                participant_display_list = []
+                if participants_dict:
+                    for name, v in participants_dict.items():
+                        participant_display_list.append(
+                            (name, _normalize_ticket_count(v))
+                        )
+                    participant_display_list.sort(
+                        key=lambda x: _ko_first_name_key(x[0])
+                    )
+                else:
+                    allowed_dict_ui = get_allowed_list(active_url)
+                    if allowed_dict_ui:
+                        for name, tickets in allowed_dict_ui.items():
+                            nm = unicodedata.normalize("NFC", str(name).strip())
+                            try:
+                                t = int(tickets)
+                            except (TypeError, ValueError):
+                                t = 1
+                            participant_display_list.append((nm, t))
+                        participant_display_list.sort(
+                            key=lambda x: _ko_first_name_key(x[0])
+                        )
                 
                 active_event_data = {
                     'title': title,
@@ -885,6 +940,7 @@ def handle_request_game_status():
                     'winners': winners,
                     'allow_duplicates': bool(allow_duplicates) if allow_duplicates is not None else False,
                     'participants': p_list_for_roulette,
+                    'participant_display_list': participant_display_list,
                     'confirmed_all': confirmed_all,
                     'current_url': active_url,
                     'current_event_id': active_url,

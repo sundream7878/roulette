@@ -803,6 +803,34 @@
             font-size: 13px;
             margin-left: 8px;
         }
+
+        .op-btn-end-roulette {
+            background: #37474f;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 18px;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .op-btn-end-roulette:hover {
+            background: #455a64;
+        }
+
+        #winner-overlay.event-ended #winner-name-v2 {
+            display: none !important;
+        }
+
+        #winner-overlay.event-ended #congrat-msg {
+            font-size: 1.35rem;
+            color: #1b5e20;
+            font-weight: 700;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            max-width: 460px;
+        }
     </style>
     <link rel="icon" href="data:,">
 </head>
@@ -991,6 +1019,13 @@
         </div>
         <div class="op-row">
             <label><input type="checkbox" id="op-allow-dup" {% if allow_duplicates_dash %}checked{% endif %} /> 중복 당첨 허용</label>
+        </div>
+        <div class="op-row" style="border-top:1px solid #e0e0e0;padding-top:16px;margin-top:12px;">
+            <label>룰렛 현장 종료 <span style="font-weight:400;color:#888">(원판 중앙 안내 표시 · 시작·+1분·슈팅시간 입력 비활성 · 게스트 화면 동기화)</span></label>
+            <input type="text" id="op-roulette-end-message" placeholder="오늘 룰렛 이벤트 종료! 감사합니다" maxlength="500" style="width:100%;max-width:560px;margin-top:8px;padding:8px 10px;border-radius:6px;border:1px solid #ccc;" />
+            <div style="margin-top:10px;">
+                <button type="button" class="op-btn-end-roulette" id="op-roulette-end-btn" onclick="opEndRouletteEvent()">룰렛 종료</button>
+            </div>
         </div>
         <div class="op-row">
             <label>참가 명단 (별명 + 티켓 수)</label>
@@ -1422,6 +1457,17 @@
                     document.getElementById('op-csv').value = '';
                 }).catch(function (e) { opSetStatus('오류: ' + e, true); });
         };
+        window.opEndRouletteEvent = function () {
+            if (!confirm('룰렛 이벤트를 현장에서 완전히 종료할까요?\n이후 이 이벤트에서는 「시작」「+1분」으로 원판을 돌릴 수 없습니다. (게스트 화면에도 동일하게 표시됩니다.)')) return;
+            var inp = document.getElementById('op-roulette-end-message');
+            var msg = inp ? String(inp.value || '').trim() : '';
+            if (!window.socket || !window.socket.connected) {
+                opSetStatus('서버 연결이 없습니다. 새로고침 후 다시 시도해 주세요.', true);
+                return;
+            }
+            opSetStatus('룰렛 종료 처리 중...', false);
+            window.socket.emit('end_roulette_event', { message: msg });
+        };
         function opRefreshHistory(opts) {
             opts = opts || {};
             fetch('/api/operator/events?limit=50', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
@@ -1599,6 +1645,79 @@
                 );
             }
         })();
+
+        function applyRouletteEventEnded(message) {
+            var msg = (message && String(message).trim()) ? String(message).trim() : '오늘 룰렛 이벤트 종료! 감사합니다';
+            window._rouletteEventClosed = true;
+            window._rouletteClosedMessage = msg;
+            window._gameIsActive = false;
+            gameIsActive = false;
+            startRequestInFlight = false;
+            if (typeof startRequestTimeout !== 'undefined' && startRequestTimeout) {
+                clearTimeout(startRequestTimeout);
+                startRequestTimeout = null;
+            }
+            var overlay = document.getElementById('winner-overlay');
+            var nameEl = document.getElementById('winner-name-v2');
+            var msgEl = document.getElementById('congrat-msg');
+            if (nameEl) {
+                nameEl.textContent = '';
+                nameEl.style.display = 'none';
+            }
+            if (msgEl) msgEl.textContent = msg;
+            if (overlay) {
+                overlay.style.display = 'block';
+                overlay.style.animation = 'none';
+                overlay.classList.add('event-ended');
+            }
+            var startBtn = document.getElementById('start-button');
+            var plusBtn = document.getElementById('plus-minute-button');
+            var ti = document.getElementById('target-time');
+            if (startBtn) {
+                startBtn.disabled = true;
+                startBtn.innerText = '종료됨';
+            }
+            if (plusBtn) plusBtn.disabled = true;
+            if (ti) ti.disabled = true;
+            var prizeListEl = document.getElementById('prize-list');
+            if (prizeListEl && typeof renderPrizes === 'function') {
+                renderPrizes(prizeListEl.dataset.prizes || '', prizeListEl.dataset.winners || '');
+            }
+            if (typeof stopAllSounds === 'function') stopAllSounds();
+            var rot = document.getElementById('rotating-container');
+            if (rot) rot.style.transform = 'rotate(0deg)';
+            if (typeof countdownInterval !== 'undefined' && countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+            var rem = document.getElementById('remaining-time');
+            if (rem) rem.innerText = '--:--:--';
+            var grem = document.getElementById('guest-remaining-time');
+            if (grem) grem.innerText = '--:--:--';
+        }
+        window.applyRouletteEventEnded = applyRouletteEventEnded;
+
+        function clearRouletteEventEndedState() {
+            window._rouletteEventClosed = false;
+            window._rouletteClosedMessage = '';
+            var overlay = document.getElementById('winner-overlay');
+            if (overlay) {
+                overlay.classList.remove('event-ended');
+                if (!window._winnerDisplayed) overlay.style.display = 'none';
+            }
+            var nameEl = document.getElementById('winner-name-v2');
+            if (nameEl) nameEl.style.display = 'block';
+            var startBtn = document.getElementById('start-button');
+            var plusBtn = document.getElementById('plus-minute-button');
+            var ti = document.getElementById('target-time');
+            if (startBtn && !gameIsActive) {
+                startBtn.disabled = false;
+                startBtn.innerText = '시작';
+            }
+            if (plusBtn && !gameIsActive) plusBtn.disabled = false;
+            if (ti && !gameIsActive) ti.disabled = false;
+        }
+        window.clearRouletteEventEndedState = clearRouletteEventEndedState;
 
         // 오디오 관련 변수
         let beepSound = null;
@@ -1845,6 +1964,7 @@
 
         // 시작 버튼 클릭 함수
         function addOneMinuteToTargetTime() {
+            if (window._rouletteEventClosed) return;
             const input = document.getElementById('target-time');
             if (!input) return;
             if (input.disabled) return;
@@ -1866,6 +1986,10 @@
 
         function startRotation() {
             console.log('시작 버튼 클릭됨');
+            if (window._rouletteEventClosed) {
+                alert('이 이벤트는 운영자에 의해 종료되었습니다. 룰렛을 다시 돌릴 수 없습니다.');
+                return;
+            }
             const startBtn = document.getElementById('start-button');
             const plusBtn = document.getElementById('plus-minute-button');
             if (!startBtn) return;
@@ -1923,6 +2047,7 @@
                 if (!startRequestInFlight) return;
                 console.warn('start_rotation 응답 지연 - 버튼 복구');
                 startRequestInFlight = false;
+                if (window._rouletteEventClosed) return;
                 const btn = document.getElementById('start-button');
                 const plus = document.getElementById('plus-minute-button');
                 const targetTimeInput = document.getElementById('target-time');
@@ -1953,6 +2078,12 @@
                 console.error("차트 초기화 오류:", e);
                 console.error(e.stack);
             }
+
+            {% if roulette_closed_message %}
+            if (typeof applyRouletteEventEnded === 'function') {
+                applyRouletteEventEnded({{ roulette_closed_message|tojson }});
+            }
+            {% endif %}
 
             // 시간 업데이트 함수 정의
             function updateTime() {
@@ -2022,15 +2153,17 @@
                     clearTimeout(startRequestTimeout);
                     startRequestTimeout = null;
                 }
-                const btn = document.getElementById('start-button');
-                const plus = document.getElementById('plus-minute-button');
-                const targetTimeInput = document.getElementById('target-time');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerText = '시작';
+                if (!window._rouletteEventClosed) {
+                    const btn = document.getElementById('start-button');
+                    const plus = document.getElementById('plus-minute-button');
+                    const targetTimeInput = document.getElementById('target-time');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = '시작';
+                    }
+                    if (plus) plus.disabled = false;
+                    if (targetTimeInput) targetTimeInput.disabled = false;
                 }
-                if (plus) plus.disabled = false;
-                if (targetTimeInput) targetTimeInput.disabled = false;
             });
 
             function keepActivePrizeNearMiddle(prizeListEl, activeItem, smooth) {
@@ -2346,6 +2479,18 @@
                 stopAllSounds();
 
                 alert(data.message);
+                if (window._rouletteEventClosed) {
+                    if (document.getElementById('start-button')) {
+                        document.getElementById('start-button').disabled = true;
+                        document.getElementById('start-button').innerText = '종료됨';
+                    }
+                    if (document.getElementById('plus-minute-button')) {
+                        document.getElementById('plus-minute-button').disabled = true;
+                    }
+                    const tix = document.getElementById('target-time');
+                    if (tix) tix.disabled = true;
+                    return;
+                }
                 if (document.getElementById('start-button')) {
                     document.getElementById('start-button').disabled = false;
                     document.getElementById('start-button').innerText = '시작';
@@ -2380,20 +2525,12 @@
                 gameIsActive = false; // 리셋 → 자동 새로고침 허용
                 window._gameIsActive = false;
                 console.log("게임 리셋 완료");
-                if (document.getElementById('start-button')) {
-                    document.getElementById('start-button').disabled = false;
-                    document.getElementById('start-button').innerText = '시작';
-                }
-                if (document.getElementById('plus-minute-button')) {
-                    document.getElementById('plus-minute-button').disabled = false;
-                }
                 document.getElementById('rotating-container').style.transform = 'rotate(0deg)';
                 document.getElementById('winner').innerText = '';
                 document.getElementById('congratulation').style.display = 'none';
 
-                // [추가] 리셋 시 당첨자 오버레이 제거
                 const winnerOverlay = document.getElementById('winner-overlay');
-                if (winnerOverlay) {
+                if (winnerOverlay && !window._rouletteEventClosed) {
                     winnerOverlay.style.display = 'none';
                     window._winnerDisplayed = false;
                 }
@@ -2403,6 +2540,28 @@
                 if (countdownInterval) {
                     clearInterval(countdownInterval);
                     document.getElementById('remaining-time').innerText = '--:--:--';
+                }
+
+                if (window._rouletteEventClosed && window._rouletteClosedMessage) {
+                    applyRouletteEventEnded(window._rouletteClosedMessage);
+                    return;
+                }
+                if (document.getElementById('start-button')) {
+                    document.getElementById('start-button').disabled = false;
+                    document.getElementById('start-button').innerText = '시작';
+                }
+                if (document.getElementById('plus-minute-button')) {
+                    document.getElementById('plus-minute-button').disabled = false;
+                }
+                const targetTi = document.getElementById('target-time');
+                if (targetTi) targetTi.disabled = false;
+            });
+
+            socket.on('roulette_event_ended', function (data) {
+                var m = data && data.message ? data.message : '';
+                applyRouletteEventEnded(m);
+                if (typeof opSetStatus === 'function') {
+                    opSetStatus('룰렛 이벤트를 현장에서 종료했습니다.', false);
                 }
             });
             socket.on('game_status', function (data) {
@@ -2442,6 +2601,12 @@
                     }
                     if (ed.participants !== undefined) {
                         updateParticipantsUI(ed.participants, null, ed.confirmed_all);
+                    }
+
+                    if (ed.roulette_closed_message) {
+                        applyRouletteEventEnded(ed.roulette_closed_message);
+                    } else if (window._rouletteEventClosed) {
+                        clearRouletteEventEndedState();
                     }
                 } else if (data.event_data && window._operatorDraftMode) {
                     console.log('[Socket] game_status 이벤트 데이터 동기화 생략 (운영자 신규 작성 모드)');

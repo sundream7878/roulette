@@ -328,7 +328,8 @@ def guest_view():
                            allowed_list_text="",
                            allow_duplicates_dash=allow_duplicates_dash,
                            supabase_rt_url=supabase_rt_url,
-                           supabase_rt_anon_key=supabase_rt_anon_key)
+                           supabase_rt_anon_key=supabase_rt_anon_key,
+                           roulette_closed_message=roulette_event_closed.get(active_url))
     
 def _roulette_list_from_allowed_dict(allowed_dict, winners_str, allow_duplicates):
     """사전 명단(dict)에서 룰렛용 (이름, 티켓수, created_at) 리스트를 만듭니다."""
@@ -518,13 +519,18 @@ def index():
                              allowed_list_text=allowed_list_text,
                              allow_duplicates_dash=allow_duplicates_dash,
                              supabase_rt_url=supabase_rt_url,
-                             supabase_rt_anon_key=supabase_rt_anon_key)
+                             supabase_rt_anon_key=supabase_rt_anon_key,
+                             roulette_closed_message=roulette_event_closed.get(active_url))
     else:
         return render_template('welcome.html')
 
 # ----- 회전 게임 로직 -----
 games = {}
 last_winner_confirm_times = {} # [추가] 당첨자 확정 후 10초 대기를 위한 타임스탬프 저장
+# 이벤트 id → 운영자가 "룰렛 종료"로 고정한 안내 문구 (해당 이벤트에서 추가 추첨 비허용)
+roulette_event_closed: dict = {}
+
+DEFAULT_ROULETTE_CLOSED_MESSAGE = "오늘 룰렛 이벤트 종료! 감사합니다"
 
 @socketio.on('connect')
 def handle_connect():
@@ -549,6 +555,36 @@ def handle_reset_game():
     games.clear()
     socketio.emit('game_reset_complete', namespace='/')
 
+
+@socketio.on('end_roulette_event')
+def handle_end_roulette_event(data=None):
+    """운영자: 현장에서 룰렛 추첨을 완전히 종료 (원판 안내 + 시작/+1분 차단)."""
+    if not current_user.is_authenticated:
+        return
+    payload = data if isinstance(data, dict) else {}
+    active_url = get_active_url()
+    if not active_url:
+        socketio.emit(
+            'error',
+            {'message': '활성 이벤트가 없습니다. 히스토리에서 이벤트를 선택해 주세요.'},
+            namespace='/',
+            to=request.sid,
+        )
+        return
+    msg = (payload.get('message') or '').strip()
+    if not msg:
+        msg = DEFAULT_ROULETTE_CLOSED_MESSAGE
+    roulette_event_closed[active_url] = msg
+    global games
+    games.clear()
+    # game_reset_complete 는 보내지 않음(잠깐 시작 버튼이 풀리는 깜빡임 방지). 클라이언트가 roulette_event_ended 로 UI 정리.
+    socketio.emit(
+        'roulette_event_ended',
+        {'message': msg, 'event_id': active_url},
+        namespace='/',
+    )
+    print(f"DEBUG: [end_roulette_event] closed for {active_url}")
+
 @socketio.on('start_rotation')
 def handle_start_rotation(data):
     """
@@ -559,6 +595,14 @@ def handle_start_rotation(data):
     
     # [추가] 당첨자 확정 후 10초 대기 로직 (서버 사이드 방어)
     active_url = get_active_url()
+    if active_url and active_url in roulette_event_closed:
+        socketio.emit(
+            'error',
+            {'message': '이 이벤트는 운영자에 의해 종료되었습니다. 룰렛을 다시 돌릴 수 없습니다.'},
+            namespace='/',
+            to=request.sid,
+        )
+        return
     if active_url and active_url in last_winner_confirm_times:
         elapsed = time.time() - last_winner_confirm_times[active_url]
         if elapsed < 10:
@@ -944,6 +988,7 @@ def handle_request_game_status():
                     'confirmed_all': confirmed_all,
                     'current_url': active_url,
                     'current_event_id': active_url,
+                    'roulette_closed_message': roulette_event_closed.get(active_url),
                 }
         except Exception as e:
             print(f"DEBUG: Error fetching initial sync data: {e}")

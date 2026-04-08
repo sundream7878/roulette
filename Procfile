@@ -1,4 +1,4 @@
-web: gunicorn comment_dart:app
+web: gunicorn -c gunicorn_config.py comment_dart:app
 
 
 

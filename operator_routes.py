@@ -32,6 +32,13 @@ def _broadcast_active_event_changed(event_key: Optional[str]):
         return
     ek = str(event_key)
     try:
+        # 전환 전용 이벤트: 클라이언트가 즉시 상태 재동기화하도록 사용
+        sio.emit(
+            "active_event_changed",
+            {"event_id": ek, "url": ek},
+            namespace="/",
+        )
+        # 하위 호환: 기존 설정 변경 이벤트도 함께 송신
         sio.emit(
             "update_event_settings",
             {"event_id": ek, "url": ek},

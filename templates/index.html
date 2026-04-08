@@ -3180,6 +3180,23 @@
                 // 참가자 변경 시 지능적으로 전용 UI만 갱신 (전체 새로고침 방지)
             });
 
+            socket.on('active_event_changed', function (data) {
+                if (window._operatorDraftMode) return;
+                var newEv = (data && (data.event_id || data.url)) ? String(data.event_id || data.url).trim() : '';
+                if (!newEv) return;
+                var curKey = rouletteLiveKey();
+                // 전환 신호를 받은 즉시 최신 상태를 다시 가져온다.
+                if (window.socket && window.socket.connected) {
+                    window.socket.emit('request_game_status');
+                }
+                if (!curKey || !rouletteEventKeysMatch(newEv, curKey)) {
+                    window.rouletteActiveKey = newEv;
+                    console.log('[Socket] active_event_changed 감지, 즉시 새로고침:', curKey, '->', newEv);
+                    if (window._scheduleReload) window._scheduleReload('SocketIO:ActiveEventChanged', 500, true);
+                    else window.location.reload();
+                }
+            });
+
             // 초기 데이터 속성 설정 (서버 렌더링 값 싱크)
             const prizeListEl = document.getElementById('prize-list');
             if (prizeListEl) {

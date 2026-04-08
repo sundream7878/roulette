@@ -1019,16 +1019,7 @@
                 </strong>
             </div>
             {% if allowed_info %}
-            {% set ns_sep = namespace(separator_shown=false) %}
             {% for info in allowed_info %}
-            {# 확정자와 미확정자 사이에 구분선 추가 #}
-            {% if not info.is_confirmed and not ns_sep.separator_shown %}
-            {% if loop.index0 > 0 %}
-            <div class="participant-separator"></div>
-            {% endif %}
-            {% set ns_sep.separator_shown = true %}
-            {% endif %}
-
             <div class="all-participant-item {% if info.is_confirmed %}is-confirmed{% endif %}">
                 {% if info.is_confirmed %}
                 <span class="confirmed-badge">✅</span>

@@ -352,8 +352,8 @@ def guest_view():
                 'tickets': tickets,
                 'is_confirmed': is_confirmed
             })
-        # 정렬: 확정자 우선, 그 다음 가나다순
-        allowed_info.sort(key=lambda x: (not x['is_confirmed'], _ko_first_name_key(x['name'])))
+        # 정렬: 항상 가나다순 고정 (체크 상태 변경으로 위치가 이동하지 않게)
+        allowed_info.sort(key=lambda x: _ko_first_name_key(x['name']))
         if not allowed_info and p_list:
             for p in p_list:
                 name_norm = unicodedata.normalize("NFC", str(p[0]).strip())
@@ -534,8 +534,8 @@ def index():
                 'tickets': tickets,
                 'is_confirmed': is_confirmed
             })
-        # 정렬: 확정자 우선, 그 다음 가나다순
-        allowed_info.sort(key=lambda x: (not x['is_confirmed'], _ko_first_name_key(x['name'])))
+        # 정렬: 항상 가나다순 고정 (체크 상태 변경으로 위치가 이동하지 않게)
+        allowed_info.sort(key=lambda x: _ko_first_name_key(x['name']))
         # posts.allowed_list 가 비어 있어도 participants 테이블에만 명단이 있을 수 있음
         if not allowed_info and p_list:
             for p in p_list:

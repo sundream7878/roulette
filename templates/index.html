@@ -1415,7 +1415,12 @@
             opUpdateParticipantsTotalFromText(document.getElementById('op-allowed-list').value || '');
             opRenderWinnersPanel(document.getElementById('op-prizes').value || '', window._opCurrentWinners || '');
         }
-        function opApplySelectPayload(d) {
+        function opApplySelectPayload(d, opts) {
+            opts = opts || {};
+            if (window._operatorDraftMode && !opts.forceExitDraft) {
+                console.log('[operator] draft 모드 유지: 비의도 select payload 적용 생략');
+                return;
+            }
             window._operatorDraftMode = false;
             window._opDraftEventMeta = null;
             var key = d.event_key || '';
@@ -2012,7 +2017,7 @@
                             .then(function (r3) { return r3.json(); })
                             .then(function (d3) {
                                 if (d3 && !d3.error) {
-                                    opApplySelectPayload(d3);
+                                    opApplySelectPayload(d3, { forceExitDraft: true });
                                     // 후속 opRefreshHistory(기본 호출)에서 1회 더 상단 고정 후 플래그 해제
                                     opSetStatus('선택 이벤트를 삭제했고, 히스토리 최상단 이벤트로 전환했습니다.', false);
                                 } else {
@@ -2061,7 +2066,7 @@
                         var expectedFromAllowed = opParseAllowedListCount(d.allowed_list_text || '');
                         var expectedFromParticipants = parseInt(d.participant_count || 0, 10);
                         window._rouletteSwitchExpectedParticipants = Math.max(expectedFromAllowed, expectedFromParticipants);
-                        opApplySelectPayload(d);
+                        opApplySelectPayload(d, { forceExitDraft: true });
                         // 체감 속도 개선: /select 응답 도착 시 바로 화면 반영 완료로 간주하고 로딩 종료
                         window._rouletteAwaitingGameStatus = false;
                         window._rouletteSwitchTargetKey = '';

@@ -1529,9 +1529,7 @@
             var prizeListEl = document.getElementById('prize-list');
             if (prizeListEl) {
                 var nextPr = (d.prizes === null || d.prizes === undefined) ? '' : String(d.prizes);
-                if (nextPr.trim() !== '' || !(prizeListEl.dataset.prizes || '').trim()) {
-                    prizeListEl.dataset.prizes = nextPr;
-                }
+                prizeListEl.dataset.prizes = nextPr;
                 prizeListEl.dataset.winners = d.winners || '';
                 if (typeof renderPrizes === 'function') {
                     renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
@@ -1553,11 +1551,8 @@
                 ? allowedPairs.slice()
                 : allowedPairs.filter(function (row) { return !winnerSet.has(row[0]); });
             var confirmedAll = roulettePairs.map(function (row) { return row[0]; });
-            // allowed_list 가 비어 있으면 DB participants 만 있는 경우가 있어, 여기서 명단을 지우지 않음 (game_status가 채움)
-            if (allowedPairs.length) {
-                opRenderParticipantsListFromAllowed(allowedPairs, new Set(confirmedAll));
-            }
-            if (typeof updateParticipantsUI === 'function' && roulettePairs.length) {
+            opRenderParticipantsListFromAllowed(allowedPairs, new Set(confirmedAll));
+            if (typeof updateParticipantsUI === 'function') {
                 updateParticipantsUI(roulettePairs, null, confirmedAll);
             }
         }
@@ -1591,7 +1586,6 @@
                 .catch(function (e) { opSetStatus('오류: ' + e, true); });
         };
         window.opRegisterNew = function () {
-            if (!confirm('새 이벤트 작성 칸을 준비할까요?\n현재 입력 내용은 초기화됩니다.')) return;
             opSetStatus('새 이벤트 준비 중...');
             opShowToast('새 이벤트 ID를 준비하는 중입니다...', 2200);
             var body = {
@@ -1660,7 +1654,6 @@
                 opSetStatus('먼저 히스토리에서 이벤트를 선택해 주세요.', true);
                 return;
             }
-            if (!confirm('선택 이벤트 내용을 유지한 새 ID를 만들고 당첨자만 초기화할까요?')) return;
             opSetStatus('당첨자 초기화 중...');
             fetch('/api/operator/reset_winners', {
                 method: 'POST',
@@ -1716,8 +1709,6 @@
                 opSetStatus('먼저 히스토리에서 이벤트를 선택해 주세요.', true);
                 return;
             }
-            if (!confirm('선택 이벤트를 DB에서 완전 삭제할까요?\n참가자/댓글/포스트 데이터가 함께 삭제됩니다.')) return;
-
             opSetStatus('이벤트 삭제 중...');
             opShowToast('삭제 반영 중입니다... 잠시만 기다려 주세요.', 2600);
             fetch('/api/operator/delete', {
@@ -1780,7 +1771,6 @@
         window.opResetWinnersOnly = function () {
             var key = ((document.getElementById('op-event-key') || {}).value || opActiveKey || '').trim();
             if (!key) { opSetStatus('먼저 이벤트를 선택해 주세요.', true); return; }
-            if (!confirm('이 이벤트의 당첨자를 모두 초기화할까요?')) return;
             opSetStatus('당첨자 리셋 중...');
             fetch('/api/operator/winners/reset', {
                 method: 'POST',
@@ -1840,7 +1830,6 @@
         };
 
         window.opEndRouletteEvent = function () {
-            if (!confirm('룰렛 이벤트를 현장에서 완전히 종료할까요?\n이후 이 이벤트에서는 「시작」「+60초」「+50초」으로 원판을 돌릴 수 없습니다. (게스트 화면에도 동일하게 표시됩니다.)')) return;
             var inp = document.getElementById('op-roulette-end-message');
             var msg = inp ? String(inp.value || '').trim() : '';
             if (!window.socket || !window.socket.connected) {
@@ -1862,7 +1851,6 @@
 
         window.opCancelRouletteEvent = function () {
             if (!window._rouletteEventClosed) return;
-            if (!confirm('원판 중앙의 종료 안내를 걷어내고 다시 「시작」「+60초」「+50초」 등으로 운영할까요?')) return;
             if (!window.socket || !window.socket.connected) {
                 opSetStatus('서버 연결이 없습니다. 새로고침 후 다시 시도해 주세요.', true);
                 return;
@@ -3212,11 +3200,8 @@
                         const prizeListEl = document.getElementById('prize-list');
                         if (prizeListEl) {
                             if (ed.prizes !== undefined) {
-                                // Supabase 일시 오류로 빈 문자열이 들어오면 기존 내용을 지우지 않음
                                 var nextPr = (ed.prizes === null || ed.prizes === undefined) ? '' : String(ed.prizes);
-                                if (nextPr.trim() !== '' || !(prizeListEl.dataset.prizes || '').trim()) {
-                                    prizeListEl.dataset.prizes = nextPr;
-                                }
+                                prizeListEl.dataset.prizes = nextPr;
                             }
                             if (ed.winners !== undefined && shouldApplyIncomingWinners(ed.winners, prizeListEl.dataset.winners || '')) {
                                 prizeListEl.dataset.winners = ed.winners || '';
@@ -3243,11 +3228,11 @@
                         }
                     }
 
-                    if (ed.participant_display_list && ed.participant_display_list.length) {
+                    if (Array.isArray(ed.participant_display_list)) {
                         var existingRows = document.querySelectorAll('#all-participants-container .all-participant-item').length;
                         // 기존 화면 순서는 유지하고 체크 상태만 갱신 (당첨자 위치 점프 방지)
                         // 단, 초기 진입/빈 상태일 때만 전체 목록 재구성
-                        if (existingRows === 0) {
+                        if (existingRows === 0 || ed.participant_display_list.length === 0) {
                             syncDomParticipantList(ed.participant_display_list, ed.confirmed_all);
                         } else {
                             updateConfirmedOnly(ed.confirmed_all, ed.participants || ed.participant_display_list);
@@ -3406,11 +3391,23 @@
 
             function syncDomParticipantList(nameTicketPairs, confirmedAll) {
                 var allContainer = document.getElementById('all-participants-container');
-                if (!allContainer || !nameTicketPairs || !nameTicketPairs.length) return;
+                if (!allContainer) return;
                 var confirmedSet = confirmedAll ? new Set(confirmedAll) : null;
                 Array.prototype.slice.call(allContainer.querySelectorAll('.all-participant-item, .participant-separator, .participants-empty')).forEach(function (el) {
                     if (el && el.parentNode) el.parentNode.removeChild(el);
                 });
+                if (!nameTicketPairs || !nameTicketPairs.length) {
+                    var empty = document.createElement('div');
+                    empty.className = 'participants-empty';
+                    empty.style.cssText = 'color:#999; font-size:0.9em;';
+                    empty.textContent = '참여 명단이 없습니다.';
+                    allContainer.appendChild(empty);
+                    var cntEl0 = document.getElementById('participants-total-count');
+                    if (cntEl0) cntEl0.textContent = '0';
+                    var opCntEl0 = document.getElementById('op-allowed-count');
+                    if (opCntEl0) opCntEl0.textContent = '0명';
+                    return;
+                }
                 function appendRow(row, isC) {
                     var item = document.createElement('div');
                     item.className = 'all-participant-item' + (isC ? ' is-confirmed' : '');
@@ -3649,9 +3646,7 @@
                     var prevWinners = prizeListEl.dataset.winners || "";
                     if (data.prizes !== undefined) {
                         var nextPr = (data.prizes === null || data.prizes === undefined) ? "" : String(data.prizes);
-                        if (nextPr.trim() !== "" || !(prizeListEl.dataset.prizes || "").trim()) {
-                            prizeListEl.dataset.prizes = nextPr;
-                        }
+                        prizeListEl.dataset.prizes = nextPr;
                     }
                     if (data.winners !== undefined && shouldApplyIncomingWinners(data.winners, prevWinners)) {
                         prizeListEl.dataset.winners = data.winners || "";

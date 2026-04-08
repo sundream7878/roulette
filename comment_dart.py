@@ -993,7 +993,8 @@ def handle_confirm_winner(data=None):
                     ),
                     'full_commenter_list': full_commenter_data,
                     'total_comments': len(all_commenters),
-                    'event_id': str(int(time.time()))
+                    # 클라이언트 키 비교/동기화는 실제 이벤트 키를 사용해야 한다.
+                    'event_id': str(active_url) if active_url is not None else ''
                 }, namespace='/')
 
         except Exception as e:

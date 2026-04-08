@@ -3300,6 +3300,7 @@
             var SUPABASE_ANON_KEY = '{{ (supabase_rt_anon_key or "")|e }}';
             var COOLDOWN_MS = 3000; // [최적화] 쿨다운을 3초로 단축하여 빠른 이벤트 전환 대응
             var _reloadTimer = null;
+            var _participantsRtStatusTimer = null;
 
             window._scheduleReload = function (eventType, delayOverride, force) {
                 if (window._operatorDraftMode) {
@@ -3380,8 +3381,9 @@
                             console.log('[Supabase RT] ignore non-active post change:', p.eventType, newKey || oldKey);
                             return;
                         }
-                        console.log('[Supabase RT] current-event settings changed:', p.eventType);
-                        window._scheduleReload('Settings:' + p.eventType);
+                        // 동일 이벤트 설정 변경은 socket(update_event_settings) DOM 반영만으로 충분하다.
+                        // 여기서 전체 새로고침을 걸면 /, /api/operator/events 재요청 루프가 쉽게 발생한다.
+                        console.log('[Supabase RT] current-event settings changed (DOM sync only):', p.eventType);
                     })
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, function (p) {
                         if (window._operatorDraftMode) {
@@ -3391,7 +3393,10 @@
                         // 참가자 변경은 소켓이 주로 처리하지만, 보조적으로 상태 요청만 트리거
                         console.log('[Supabase RT] participants change detected');
                         if (window.socket && window.socket.connected) {
-                            window.socket.emit('request_game_status');
+                            if (_participantsRtStatusTimer) clearTimeout(_participantsRtStatusTimer);
+                            _participantsRtStatusTimer = setTimeout(function () {
+                                window.socket.emit('request_game_status');
+                            }, 800);
                         }
                     })
                     .subscribe();

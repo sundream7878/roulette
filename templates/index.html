@@ -411,6 +411,29 @@
             font-size: 18px;
             width: 120px;
             text-align: center;
+            transition: box-shadow 0.22s ease, transform 0.22s ease, border-color 0.22s ease;
+        }
+
+        #target-time.time-adjust-pulse {
+            border-color: #2e7d32;
+            box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.18);
+            transform: translateY(-1px);
+        }
+
+        .time-adjust-toast {
+            position: fixed;
+            z-index: 10020;
+            background: rgba(33, 33, 33, 0.92);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 10px;
+            border-radius: 999px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(6px) scale(0.96);
+            transition: opacity 0.18s ease, transform 0.18s ease;
         }
 
         .time-value {
@@ -2590,7 +2613,38 @@
             const mm = base.getMinutes().toString().padStart(2, '0');
             const ss = base.getSeconds().toString().padStart(2, '0');
             input.value = `${hh}:${mm}:${ss}`;
+            showTimeAdjustFeedback(input, (tag || ('+' + String(seconds) + '초')) + ' 적용');
             console.log('[' + (tag || ('+' + String(seconds) + '초')) + '] target-time:', input.value);
+        }
+        function showTimeAdjustFeedback(targetInput, message) {
+            if (!targetInput) return;
+            targetInput.classList.remove('time-adjust-pulse');
+            // reflow로 연속 클릭 시 애니메이션 재시작
+            void targetInput.offsetWidth;
+            targetInput.classList.add('time-adjust-pulse');
+            if (targetInput._pulseTimer) clearTimeout(targetInput._pulseTimer);
+            targetInput._pulseTimer = setTimeout(function () {
+                targetInput.classList.remove('time-adjust-pulse');
+            }, 450);
+
+            var toast = document.getElementById('time-adjust-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'time-adjust-toast';
+                toast.className = 'time-adjust-toast';
+                document.body.appendChild(toast);
+            }
+            toast.textContent = String(message || '시간 반영됨');
+            var rect = targetInput.getBoundingClientRect();
+            toast.style.left = Math.round(rect.left + (rect.width / 2)) + 'px';
+            toast.style.top = Math.round(rect.top - 10) + 'px';
+            toast.style.transform = 'translate(-50%, -100%) scale(1)';
+            toast.style.opacity = '1';
+            if (toast._hideTimer) clearTimeout(toast._hideTimer);
+            toast._hideTimer = setTimeout(function () {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translate(-50%, -88%) scale(0.96)';
+            }, 1000);
         }
         // 시작 버튼 클릭 함수
         function addOneMinuteToTargetTime() {

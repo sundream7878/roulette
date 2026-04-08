@@ -1155,6 +1155,36 @@
             if (el) { el.textContent = t; el.style.color = err ? '#c62828' : '#2e7d32'; }
         }
         window.opSetStatus = opSetStatus;
+        function opShowToast(message, durationMs) {
+            var el = document.getElementById('op-action-toast');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'op-action-toast';
+                el.style.position = 'fixed';
+                el.style.left = '50%';
+                el.style.top = '20px';
+                el.style.transform = 'translateX(-50%)';
+                el.style.background = 'rgba(33,33,33,0.95)';
+                el.style.color = '#fff';
+                el.style.padding = '10px 14px';
+                el.style.borderRadius = '8px';
+                el.style.fontSize = '13px';
+                el.style.fontWeight = '600';
+                el.style.zIndex = '10000';
+                el.style.boxShadow = '0 4px 16px rgba(0,0,0,0.25)';
+                el.style.opacity = '0';
+                el.style.transition = 'opacity 0.2s ease';
+                document.body.appendChild(el);
+            }
+            el.textContent = message;
+            el.style.opacity = '1';
+            if (el._hideTimer) clearTimeout(el._hideTimer);
+            var ms = Number(durationMs || 2500);
+            el._hideTimer = setTimeout(function () {
+                el.style.opacity = '0';
+            }, ms);
+        }
+        window.opShowToast = opShowToast;
         window._opCurrentWinners = {{ (winners or '')|tojson }};
 
         function opSplitText(raw) {
@@ -1642,6 +1672,7 @@
             if (!confirm('선택 이벤트를 DB에서 완전 삭제할까요?\n참가자/댓글/포스트 데이터가 함께 삭제됩니다.')) return;
 
             opSetStatus('이벤트 삭제 중...');
+            opShowToast('삭제 반영 중입니다... 잠시만 기다려 주세요.', 2600);
             fetch('/api/operator/delete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1733,6 +1764,7 @@
                 return;
             }
             opSetStatus('선택 당첨자 삭제 중...');
+            opShowToast('삭제 반영 중입니다... 잠시만 기다려 주세요.', 2400);
             fetch('/api/operator/winners/delete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

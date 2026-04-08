@@ -1621,8 +1621,10 @@
         window.opRegisterNew = function () {
             opSetStatus('새 이벤트 준비 중...');
             opShowToast('새 이벤트 ID를 준비하는 중입니다...', 2200);
+            var snapshot = opFormToBody();
+            snapshot.winners = window._opCurrentWinners || '';
             var body = {
-                event_at: opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || '')
+                event_at: snapshot.event_at || opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || '')
             };
             var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
             var tm = setTimeout(function () {
@@ -1650,28 +1652,40 @@
                         window.rouletteActiveKey = key;
                         var badge = document.getElementById('op-id-badge');
                         if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(key);
-                        document.getElementById('op-title').value = '';
-                        document.getElementById('op-prizes').value = '';
-                        document.getElementById('op-memo').value = '';
-                        document.getElementById('op-allow-dup').checked = false;
-                        document.getElementById('op-allowed-list').value = '';
+                        // 새 ID 준비 단계에서는 기존 폼 내용을 유지해 "복사본 작성" 흐름을 보장한다.
+                        // (저장 전에도 제목/일시/명단/사은품이 일치하도록 즉시 반영)
+                        document.getElementById('op-title').value = snapshot.title || '';
+                        document.getElementById('op-prizes').value = snapshot.prizes || '';
+                        document.getElementById('op-memo').value = snapshot.memo || '';
+                        document.getElementById('op-allow-dup').checked = !!snapshot.allow_duplicates;
+                        document.getElementById('op-allowed-list').value = snapshot.allowed_list_text || '';
                         window._opCurrentWinners = '';
-                        opRenderWinnersPanel('', '');
-                        opUpdateParticipantsTotalFromText('');
+                        opApplySelectedEventToLivePanels({
+                            event_key: key,
+                            title: snapshot.title || '',
+                            prizes: snapshot.prizes || '',
+                            memo: snapshot.memo || '',
+                            winners: '',
+                            allow_duplicates: !!snapshot.allow_duplicates,
+                            allowed_list_text: snapshot.allowed_list_text || ''
+                        });
+                        opRenderWinnersPanel(snapshot.prizes || '', '');
+                        opUpdateParticipantsTotalFromText(snapshot.allowed_list_text || '');
                         var eat = document.getElementById('op-event-at');
                         if (eat) {
-                            var v = opEventAtToInputValue(d.event_at || '');
+                            var v = opEventAtToInputValue(d.event_at || snapshot.event_at || '');
                             eat.value = v;
                             if (eat._flatpickr) eat._flatpickr.setDate(v, false, 'Y-m-d H:i');
                         }
                         var h1 = document.getElementById('event-title-display');
-                        if (h1) h1.textContent = '';
+                        if (h1) h1.textContent = snapshot.title || '';
                         window._operatorDraftMode = true;
-                        window._opDraftEventMeta = { key: key, event_at: d.event_at || '' };
-                        opInjectDraftHistoryOption(key, d.event_at || '');
+                        var draftEventAt = d.event_at || snapshot.event_at || '';
+                        window._opDraftEventMeta = { key: key, event_at: draftEventAt };
+                        opInjectDraftHistoryOption(key, draftEventAt);
                         // "새 이벤트로 등록"은 DB에 저장하지 않는 임시 준비 단계라
                         // 히스토리 재조회가 필요 없다. (리스트 깜빡임/지연 방지)
-                        opSetStatus('새 이벤트 작성 준비 완료. 내용을 입력한 뒤 저장하세요.', false);
+                        opSetStatus('새 이벤트(ID) 복사본 준비 완료. 내용을 확인/수정한 뒤 저장하세요.', false);
                     });
                 })
                 .catch(function (e) {

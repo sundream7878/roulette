@@ -1310,6 +1310,14 @@
             if (!k) return;
             window._opRecentResetKeys[k] = Date.now();
         }
+        function opClearNewBadgeKey(key) {
+            var k = String(key || '').trim();
+            if (!k) return;
+            var map = window._opRecentResetKeys || {};
+            if (Object.prototype.hasOwnProperty.call(map, k)) {
+                delete map[k];
+            }
+        }
         function opHasNewBadge(key) {
             var now = Date.now();
             var map = window._opRecentResetKeys || {};
@@ -1614,6 +1622,9 @@
                             return;
                         }
                         if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
+                        // 사용자가 직접 저장을 누른 시점부터는 NEW 배지를 제거한다.
+                        var savedKey = (d && d.event_key) ? String(d.event_key).trim() : '';
+                        if (savedKey) opClearNewBadgeKey(savedKey);
                         opApplySavedKey(d);
                         // 저장 응답 소켓이 늦어도, 입력한 값을 즉시 라이브 패널에 반영한다.
                         var livePayload = opBuildLivePayloadFromForm(body, d);

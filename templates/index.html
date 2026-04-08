@@ -3185,9 +3185,19 @@
                 var newEv = (data && (data.event_id || data.url)) ? String(data.event_id || data.url).trim() : '';
                 if (!newEv) return;
                 var curKey = rouletteLiveKey();
+                var isGuestView = document.getElementById('guest-current-time') !== null;
                 // 전환 신호를 받은 즉시 최신 상태를 다시 가져온다.
                 if (window.socket && window.socket.connected) {
                     window.socket.emit('request_game_status');
+                }
+                if (isGuestView) {
+                    // 긴급 안정화 모드: 게스트는 전환 신호를 받으면 조건 비교 없이 1회 강제 새로고침
+                    // (PC/모바일 브라우저별 socket 상태 편차로 전환 누락되는 문제 방지)
+                    window.rouletteActiveKey = newEv;
+                    console.log('[Socket] active_event_changed(guest) 강제 새로고침:', curKey, '->', newEv);
+                    if (window._scheduleReload) window._scheduleReload('SocketIO:ActiveEventChanged:GuestForce', 300, true);
+                    else window.location.reload();
+                    return;
                 }
                 if (!curKey || !rouletteEventKeysMatch(newEv, curKey)) {
                     window.rouletteActiveKey = newEv;

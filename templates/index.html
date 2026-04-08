@@ -1547,24 +1547,7 @@
                         }
                         if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
 
-                        if (d.next_active_event_key) {
-                            fetch('/api/operator/select', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                credentials: 'same-origin',
-                                body: JSON.stringify({ event_key: d.next_active_event_key })
-                            })
-                                .then(function (r2) { return r2.json(); })
-                                .then(function (d2) {
-                                    if (d2 && !d2.error) {
-                                        opApplySelectPayload(d2);
-                                    }
-                                    opSetStatus('선택 이벤트를 삭제했고, 다음 이벤트로 전환했습니다.', false);
-                                })
-                                .catch(function () {
-                                    opSetStatus('삭제는 완료됐지만 다음 이벤트 전환 중 오류가 있었습니다.', true);
-                                });
-                        } else {
+                        if (!d.next_active_event_key) {
                             var hid = document.getElementById('op-event-key');
                             if (hid) hid.value = '';
                             opActiveKey = '';
@@ -1584,7 +1567,12 @@
                             }
                             opSetStatus('선택 이벤트를 삭제했습니다. 남은 이벤트가 없습니다.', false);
                         }
-                        opRefreshHistory({ skipEmptyStatus: true });
+                        // 삭제 후에는 항상 "히스토리 최상단"을 선택/활성화한다.
+                        // (기존 opActiveKey 우선 선택 때문에 임의 항목이 선택된 것처럼 보이는 현상 방지)
+                        opRefreshHistory({
+                            skipEmptyStatus: true,
+                            forceTopAfterDelete: true
+                        });
                     });
                 })
                 .catch(function (e) { opSetStatus('오류: ' + e, true); });
@@ -1696,6 +1684,32 @@
                     return;
                 }
                 if (!anySel && sel.options.length) sel.options[0].selected = true;
+
+                // 삭제 직후에는 최상단 항목을 강제로 선택 + 활성화
+                if (opts.forceTopAfterDelete && sel.options.length) {
+                    sel.selectedIndex = 0;
+                    var topKey = String(sel.options[0].value || '').trim();
+                    if (topKey) {
+                        fetch('/api/operator/select', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ event_key: topKey })
+                        })
+                            .then(function (r3) { return r3.json(); })
+                            .then(function (d3) {
+                                if (d3 && !d3.error) {
+                                    opApplySelectPayload(d3);
+                                    opSetStatus('선택 이벤트를 삭제했고, 히스토리 최상단 이벤트로 전환했습니다.', false);
+                                } else {
+                                    opSetStatus('삭제는 완료됐지만 최상단 이벤트 전환에 실패했습니다.', true);
+                                }
+                            })
+                            .catch(function () {
+                                opSetStatus('삭제는 완료됐지만 최상단 이벤트 전환 중 오류가 있었습니다.', true);
+                            });
+                    }
+                }
             }).catch(function () { opSetStatus('이벤트 목록을 불러오지 못했습니다.', true); });
         }
         function opBindHistorySelect() {

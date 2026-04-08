@@ -333,6 +333,21 @@
                 min-width: 0;
                 height: auto;
             }
+
+            /* 모바일에서는 카드 본문이 0 높이로 접히지 않도록 flex-grow 해제 */
+            #prize-container,
+            #memo-container {
+                flex: 0 0 auto;
+                min-height: 220px;
+                height: auto;
+            }
+
+            #prize-list,
+            #memo-content-scroll {
+                max-height: 260px;
+                min-height: 120px;
+                overflow-y: auto;
+            }
         }
 
         .legend-item {

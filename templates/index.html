@@ -2098,7 +2098,7 @@
         let targetDateTime = null;
         let gameIsActive = false; // 전역 선언 추가
         window._gameIsActive = false; // Supabase RT용 선언 초기화
-        const ROULETTE_STOP_COMP_MS = 400; // 체감상 0.4초 늦게 멈추는 현상 보정
+        const ROULETTE_STOP_COMP_MS = 300; // 체감상 0.3초 늦게 멈추는 현상 보정
         let memoPolicyAllowDuplicates = {% if allow_duplicates_dash %}true{% else %}false{% endif %};
         let startRequestInFlight = false;
         let startRequestTimeout = null;

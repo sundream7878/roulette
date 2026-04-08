@@ -1161,6 +1161,11 @@
         function opSplitText(raw) {
             var s = String(raw || '');
             if (!s.trim()) return [];
+            // DB/소켓 경로에 따라 줄바꿈이 "\n" 리터럴 또는 CR(\r)만 남는 케이스를 모두 정규화
+            s = s
+                .replace(/\\r\\n/g, '\n')
+                .replace(/\\n/g, '\n')
+                .replace(/\r/g, '\n');
             return s.split(/[,\n]+/).map(function (v) { return String(v || '').trim(); }).filter(function (v) { return !!v; });
         }
         function opRenderWinnersPanel(prizesText, winnersText) {

@@ -1169,7 +1169,7 @@
             var prizes = opSplitText(prizesText);
             var winners = opSplitText(winnersText);
             sel.innerHTML = '';
-            if (!winners.length) {
+            if (!prizes.length && !winners.length) {
                 var empty = document.createElement('option');
                 empty.value = '';
                 empty.textContent = '(당첨자 없음)';
@@ -1178,14 +1178,17 @@
                 sel.appendChild(empty);
                 return;
             }
-            winners.forEach(function (name, idx) {
+            var rowCount = Math.max(prizes.length, winners.length);
+            for (var idx = 0; idx < rowCount; idx += 1) {
+                var name = winners[idx] || '(미당첨)';
                 var prize = prizes[idx] || '추가당첨';
                 var opt = document.createElement('option');
                 opt.value = String(idx);
                 opt.textContent = (idx + 1) + '. ' + prize + '  ->  ' + name;
+                if (!winners[idx]) opt.disabled = true; // 미당첨 행은 선택 삭제 대상 아님
                 sel.appendChild(opt);
-            });
-            sel.selectedIndex = 0;
+            }
+            if (sel.options.length) sel.selectedIndex = 0;
         }
         window.opRenderWinnersPanel = opRenderWinnersPanel;
 
@@ -3070,6 +3073,10 @@
                             }
 
                             renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
+                            window._opCurrentWinners = prizeListEl.dataset.winners || '';
+                            if (typeof window.opRenderWinnersPanel === 'function') {
+                                window.opRenderWinnersPanel(prizeListEl.dataset.prizes || '', window._opCurrentWinners);
+                            }
                         }
                     }
 
@@ -3493,6 +3500,10 @@
                     }
                     // 게임 중이라도 사은품 목록은 항상 최신화 (당첨자 표시를 위해)
                     renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
+                    window._opCurrentWinners = prizeListEl.dataset.winners || '';
+                    if (typeof window.opRenderWinnersPanel === 'function') {
+                        window.opRenderWinnersPanel(prizeListEl.dataset.prizes || '', window._opCurrentWinners);
+                    }
                 }
 
                 if (!gameIsActive) {

@@ -1124,7 +1124,7 @@
         </div>
         <div class="op-row" style="display:flex; gap:12px; align-items:stretch;">
             <div style="flex:1; min-width:0;">
-                <label>참가 명단 (별명 + 티켓 수)</label>
+                <label>참가 명단 (별명 + 티켓 수) <span id="op-allowed-count" style="font-weight:700;color:#1565c0;">0명</span></label>
                 <textarea id="op-allowed-list">{{ allowed_list_text or '' }}</textarea>
             </div>
             <div style="flex:1; min-width:0;">
@@ -1356,6 +1356,7 @@
         }
         function opUpdateParticipantsTotalFromText(text) {
             var el = document.getElementById('participants-total-count');
+            var opCountEl = document.getElementById('op-allowed-count');
             if (!el) return;
             var parsed = opParseAllowedListCount(text);
             if (parsed === 0 && !String(text || '').trim()) {
@@ -1363,6 +1364,7 @@
                 if (liveCount > 0) parsed = liveCount;
             }
             el.textContent = String(parsed);
+            if (opCountEl) opCountEl.textContent = String(parsed) + '명';
         }
         function opBindAllowedListCounter() {
             var ta = document.getElementById('op-allowed-list');

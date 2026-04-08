@@ -2430,7 +2430,9 @@
             }
 
             // 시, 분, 초 계산
-            let seconds = Math.floor(diff / 1000);
+            // floor를 쓰면 1초 미만이 남아도 00:00:00으로 보여
+            // "시간이 멈췄는데 원판이 더 돈다"는 체감이 생긴다.
+            let seconds = Math.ceil(diff / 1000);
             let minutes = Math.floor(seconds / 60);
             let hours = Math.floor(minutes / 60);
 

@@ -2184,6 +2184,7 @@
         let targetDateTime = null;
         let gameIsActive = false; // 전역 선언 추가
         window._gameIsActive = false; // Supabase RT용 선언 초기화
+        window._holdWinnerChecksUntilNextStart = false;
         const ROULETTE_STOP_COMP_MS = 300; // 체감상 0.3초 늦게 멈추는 현상 보정
         let memoPolicyAllowDuplicates = {% if allow_duplicates_dash %}true{% else %}false{% endif %};
         let startRequestInFlight = false;
@@ -2896,6 +2897,8 @@
             socket.on('start_game', function (data) {
                 console.log('게임 시작:', data);
                 currentRoundId = (data && data.round_id) ? String(data.round_id) : '';
+                // 요청사항: 당첨 직후 체크는 유지하고, 다음 시작 시점에만 해제 반영
+                window._holdWinnerChecksUntilNextStart = false;
                 startRequestInFlight = false;
                 if (startRequestTimeout) {
                     clearTimeout(startRequestTimeout);
@@ -3101,6 +3104,8 @@
                 if (data && data.round_id) {
                     currentRoundId = String(data.round_id);
                 }
+                // 당첨 직후에는 체크 해제를 잠시 보류해 시청자가 당첨자를 확인할 시간을 준다.
+                window._holdWinnerChecksUntilNextStart = true;
                 startRequestInFlight = false;
                 if (startRequestTimeout) {
                     clearTimeout(startRequestTimeout);
@@ -3604,6 +3609,10 @@
             function updateConfirmedOnly(confirmed_all, p_list) {
                 const allContainer = document.getElementById('all-participants-container');
                 if (!allContainer) return;
+                if (window._holdWinnerChecksUntilNextStart) {
+                    console.log('체크 상태 유지 중: 다음 시작 전까지 당첨 직후 체크 해제 보류');
+                    return;
+                }
 
                 const confirmedNames = confirmed_all
                     ? new Set(confirmed_all)

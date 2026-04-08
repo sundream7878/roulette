@@ -792,6 +792,7 @@ def handle_start_rotation(data):
         'finalAngle': final_angle,
         'winner': winner,
         'round_id': round_id,
+        'target_unix_ms': int((time.time() + max(0.0, duration)) * 1000),
         'participants': p_list # 정확한 명단 동기화
     }, namespace='/')
         
@@ -1171,7 +1172,8 @@ def handle_request_game_status():
                 'duration': duration_left,
                 'finalAngle': active_game.get('current_angle', 0),
                 'winner': active_game.get('final_winner'),
-                'round_id': active_game.get('round_id', '')
+                'round_id': active_game.get('round_id', ''),
+                'target_unix_ms': int((time.time() + max(0.0, duration_left)) * 1000),
             }, namespace='/', to=request.sid)  # 요청한 클라이언트에게만 전송
             
             print(f"진행 중인 게임 정보 전송: 남은 시간 {duration_left:.2f}초")

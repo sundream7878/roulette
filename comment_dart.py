@@ -30,6 +30,17 @@ def get_allowed_list(url=None):
     return _get_allowed_list_util(db, url)
 
 
+def _is_effectively_empty_event_fetch(participants_dict, title, prizes, memo, winners, allowed_list_text):
+    """Supabase 일시 실패로 빈 스냅샷이 내려온 경우를 감지."""
+    no_participants = not participants_dict
+    no_title = not str(title or "").strip()
+    no_prizes = not str(prizes or "").strip()
+    no_memo = not str(memo or "").strip()
+    no_winners = not str(winners or "").strip()
+    no_allowed = not str(allowed_list_text or "").strip()
+    return no_participants and no_title and no_prizes and no_memo and no_winners and no_allowed
+
+
 def _is_hangul_char(ch: str) -> bool:
     if not ch:
         return False
@@ -897,13 +908,17 @@ def handle_confirm_winner(data=None):
                 }, namespace='/')
                 
                 # 4. 브로드캐스트 전 메모리 상태 업데이트 (monitor_view 와 공유)
-                if active_url in event_states:
-                    event_states[active_url]['winners'] = new_winners_str
-                    event_states[active_url]['participants'] = participants
-                    if not allow_duplicates:
-                        # 이미 당첨된 사람을 seen_ids 에서도 관리하여 재진입 방지 (선택 사항)
-                        # event_states[active_url].setdefault('seen_ids', set()).add(winner)
-                        pass
+                st = event_states.setdefault(active_url, {})
+                st['winners'] = new_winners_str
+                st['participants'] = dict(participants or {})
+                st['title'] = title or ''
+                st['prizes'] = prizes or ''
+                st['memo'] = memo or ''
+                st['allow_duplicates'] = bool(allow_duplicates)
+                if not allow_duplicates:
+                    # 이미 당첨된 사람을 seen_ids 에서도 관리하여 재진입 방지 (선택 사항)
+                    # st.setdefault('seen_ids', set()).add(winner)
+                    pass
 
                 # 5. 브로드캐스트
                 socketio.emit('update_event_settings', {
@@ -990,6 +1005,16 @@ def handle_request_game_status():
                 participants_dict, last_id, all_commenter_list, title, prizes, memo, winners, allow_duplicates, _, _ = db.get_data(
                     active_url, include_commenters=False
                 )
+                # Supabase 일시 오류로 빈 데이터가 내려오면 마지막 정상 스냅샷으로 폴백
+                cached = event_states.get(active_url) if active_url else None
+                if _is_effectively_empty_event_fetch(participants_dict, title, prizes, memo, winners, None) and cached:
+                    print(f"DEBUG: [game_status] using cached snapshot for {active_url}")
+                    participants_dict = dict(cached.get('participants') or {})
+                    title = cached.get('title', title)
+                    prizes = cached.get('prizes', prizes)
+                    memo = cached.get('memo', memo)
+                    winners = cached.get('winners', winners)
+                    allow_duplicates = cached.get('allow_duplicates', allow_duplicates)
 
                 p_list_for_roulette = []
                 if participants_dict:
@@ -1049,6 +1074,14 @@ def handle_request_game_status():
                     'current_event_id': active_url,
                     'roulette_closed_message': roulette_event_closed.get(active_url),
                 }
+                # 다음 요청에서 폴백할 수 있도록 마지막 정상 스냅샷 갱신
+                st = event_states.setdefault(active_url, {})
+                st['title'] = title or ''
+                st['prizes'] = prizes or ''
+                st['memo'] = memo or ''
+                st['winners'] = winners or ''
+                st['allow_duplicates'] = bool(allow_duplicates)
+                st['participants'] = dict(participants_dict or {})
         except Exception as e:
             print(f"DEBUG: Error fetching initial sync data: {e}")
 

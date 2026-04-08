@@ -740,7 +740,17 @@
         }
 
         #op-allowed-list {
-            min-height: 180px;
+            height: 220px;
+            min-height: 220px;
+            max-height: 220px;
+            resize: none;
+        }
+
+        #op-winners-list {
+            height: 220px;
+            min-height: 220px;
+            max-height: 220px;
+            box-sizing: border-box;
         }
 
         .participants-title-row {
@@ -1119,7 +1129,7 @@
             </div>
             <div style="flex:1; min-width:0;">
                 <label>당첨자 명단 (사은품 ↔ 당첨자)</label>
-                <select id="op-winners-list" size="9" style="width:100%; min-height:220px; padding:8px; border:1px solid #ddd; border-radius:6px;"></select>
+                <select id="op-winners-list" size="9" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;"></select>
                 <div style="margin-top:8px; display:flex; gap:8px;">
                     <button type="button" class="op-btn-reset" style="flex:1;" onclick="opResetWinnersOnly()">당첨자 리셋</button>
                     <button type="button" class="op-btn-delete" style="flex:1;" onclick="opDeleteSelectedWinner()">선택 삭제</button>

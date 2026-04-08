@@ -123,7 +123,7 @@ def api_save():
         return jsonify({"ok": True, "event_key": new_key, "created": True})
     key = normalize_event_id(key.strip())
 
-    _, last_id, _, t0, pr, m0, w0, ad0, al0, ea0 = _db().get_data(key)
+    last_id, t0, pr, m0, w0, ad0, al0, ea0 = _db().get_post_snapshot(key)
     last_id = last_id or ""
 
     title = data["title"] if "title" in data else t0
@@ -155,10 +155,13 @@ def api_save():
     )
     if not ok:
         return _operator_storage_error_response(err_detail)
-    # 저장 시점에 해당 이벤트를 활성화하여 실제 운영 화면 반영 기준을 일원화
-    ok_act, err_act = _db().set_active_event_id_blocking(key)
-    if not ok_act:
-        return _operator_storage_error_response(err_act)
+    # 이미 활성 이벤트면 재활성화 쿼리를 생략해 저장 응답 지연을 줄인다.
+    current_active = _db().get_active_event_id()
+    if normalize_event_id(current_active) != key:
+        # 저장 시점에 해당 이벤트를 활성화하여 실제 운영 화면 반영 기준을 일원화
+        ok_act, err_act = _db().set_active_event_id_blocking(key)
+        if not ok_act:
+            return _operator_storage_error_response(err_act)
     return jsonify({"ok": True, "event_key": key, "created": False})
 
 

@@ -1448,7 +1448,8 @@
                         var h1 = document.getElementById('event-title-display');
                         if (h1) h1.textContent = '';
                         window._operatorDraftMode = true;
-                        opRefreshHistory({ skipEmptyStatus: true });
+                        // "새 이벤트로 등록"은 DB에 저장하지 않는 임시 준비 단계라
+                        // 히스토리 재조회가 필요 없다. (리스트 깜빡임/지연 방지)
                         opSetStatus('새 이벤트 작성 준비 완료. 내용을 입력한 뒤 저장하세요.', false);
                     });
                 })

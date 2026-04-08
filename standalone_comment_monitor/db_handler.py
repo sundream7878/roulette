@@ -529,7 +529,14 @@ class CommentDatabase:
         self.set_active_event_id(url)
 
     def _sync_active_event_supabase_core(self, event_id: Optional[str]):
-        self.supabase.table("posts").update({"is_active": False}).neq(self._post_key_col, "void").execute()
+        if not self._post_has_is_active_col:
+            return
+        # 전체 rows 업데이트는 이벤트 수가 많아질수록 느려지므로
+        # 현재 active=true 인 행만 대상으로 최소 범위 갱신한다.
+        q = self.supabase.table("posts").update({"is_active": False}).eq("is_active", True)
+        if event_id:
+            q = q.neq(self._post_key_col, event_id)
+        q.execute()
         if event_id:
             # 중요:
             # 활성화 단계에서는 "기존 이벤트 행의 is_active 플래그만" 갱신한다.
@@ -538,6 +545,39 @@ class CommentDatabase:
             # 이후 조회 시 값이 사라진 것처럼 보일 수 있다.
             self.supabase.table("posts").update({"is_active": True}).eq(self._post_key_col, event_id).execute()
             print(f"DEBUG: [SupabaseSync] Active event id set to: {event_id}")
+
+    def get_post_snapshot(
+        self, event_id: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str], Optional[bool], Optional[str], Optional[str]]:
+        """
+        posts 테이블의 메타 필드만 빠르게 조회한다.
+        반환: (last_comment_id, title, prizes, memo, winners, allow_duplicates, allowed_list, event_at)
+        """
+        try:
+            res = self.supabase.table("posts").select("*").eq(self._post_key_col, event_id).limit(1).execute()
+            row = (res.data or [None])[0]
+            if not row and self._post_has_id_col and self._post_has_url_col:
+                alt_col = "url" if self._post_key_col == "id" else "id"
+                res2 = self.supabase.table("posts").select("*").eq(alt_col, event_id).limit(1).execute()
+                row = (res2.data or [None])[0]
+            if not row:
+                return (None, None, None, None, None, None, None, None)
+            event_at = row.get("event_at")
+            if event_at is None:
+                event_at = row.get("updated_at")
+            return (
+                row.get("last_comment_id"),
+                row.get("title"),
+                row.get("prizes"),
+                row.get("memo"),
+                row.get("winners"),
+                row.get("allow_duplicates"),
+                row.get("allowed_list"),
+                event_at,
+            )
+        except Exception as e:
+            print(f"DEBUG: [get_post_snapshot] Supabase error: {e}")
+            return (None, None, None, None, None, None, None, None)
 
     @retry_supabase
     def _sync_active_event_supabase(self, event_id: Optional[str]):
@@ -663,7 +703,16 @@ class CommentDatabase:
                 max_serial = max(max_serial, int(tail))
 
         try:
-            res = self.supabase.table("posts").select(self._post_select_cols()).like(self._post_key_col, f"{prefix}%").execute()
+            # 최신 ID 한 건만 조회해도 다음 시리얼 계산이 가능하다.
+            # (기존 전체 조회는 이벤트 수가 늘수록 지연이 커짐)
+            res = (
+                self.supabase.table("posts")
+                .select(self._post_key_col)
+                .like(self._post_key_col, f"{prefix}%")
+                .order(self._post_key_col, desc=True)
+                .limit(1)
+                .execute()
+            )
             for row in res.data or []:
                 _bump(self._row_event_key(row) or "")
         except Exception as e:

@@ -1161,6 +1161,7 @@
         window.rouletteActiveKey = (typeof opActiveKey === 'string') ? opActiveKey : '';
         window._opRecentResetKeys = window._opRecentResetKeys || {};
         window._opDraftEventMeta = window._opDraftEventMeta || null;
+        window._opForceHistoryTopOnce = window._opForceHistoryTopOnce || false;
         var OP_NEW_BADGE_TTL_MS = 30 * 60 * 1000;
         /** true: 「새 이벤트로 등록」 직후~저장 전. RT/소켓 자동 새로고침이 폼을 덮어쓰지 않도록 함 */
         window._operatorDraftMode = false;
@@ -1934,6 +1935,10 @@
         };
         function opRefreshHistory(opts) {
             opts = opts || {};
+            if (opts.forceTopAfterDelete) {
+                // 삭제 직후 1회는 후속 갱신에서도 상단 고정을 유지한다.
+                window._opForceHistoryTopOnce = true;
+            }
             fetch('/api/operator/events?limit=50', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
                 var sel = document.getElementById('op-event-history');
                 if (!sel) return;
@@ -1986,11 +1991,16 @@
                     sel.selectedIndex = -1;
                     return;
                 }
+                if (window._opForceHistoryTopOnce && sel.options.length) {
+                    sel.selectedIndex = 0;
+                    sel.scrollTop = 0;
+                }
                 if (!anySel && sel.options.length) sel.options[0].selected = true;
 
                 // 삭제 직후에는 최상단 항목을 강제로 선택 + 활성화
                 if (opts.forceTopAfterDelete && sel.options.length) {
                     sel.selectedIndex = 0;
+                    sel.scrollTop = 0;
                     var topKey = String(sel.options[0].value || '').trim();
                     if (topKey) {
                         fetch('/api/operator/select', {
@@ -2003,15 +2013,22 @@
                             .then(function (d3) {
                                 if (d3 && !d3.error) {
                                     opApplySelectPayload(d3);
+                                    // 후속 opRefreshHistory(기본 호출)에서 1회 더 상단 고정 후 플래그 해제
                                     opSetStatus('선택 이벤트를 삭제했고, 히스토리 최상단 이벤트로 전환했습니다.', false);
                                 } else {
                                     opSetStatus('삭제는 완료됐지만 최상단 이벤트 전환에 실패했습니다.', true);
+                                    window._opForceHistoryTopOnce = false;
                                 }
                             })
                             .catch(function () {
                                 opSetStatus('삭제는 완료됐지만 최상단 이벤트 전환 중 오류가 있었습니다.', true);
+                                window._opForceHistoryTopOnce = false;
                             });
                     }
+                    return;
+                }
+                if (window._opForceHistoryTopOnce) {
+                    window._opForceHistoryTopOnce = false;
                 }
             }).catch(function () { opSetStatus('이벤트 목록을 불러오지 못했습니다.', true); });
         }

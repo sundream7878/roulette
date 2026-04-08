@@ -1628,6 +1628,8 @@
                         document.getElementById('op-memo').value = '';
                         document.getElementById('op-allow-dup').checked = false;
                         document.getElementById('op-allowed-list').value = '';
+                        window._opCurrentWinners = '';
+                        opRenderWinnersPanel('', '');
                         opUpdateParticipantsTotalFromText('');
                         var eat = document.getElementById('op-event-at');
                         if (eat) {
@@ -1676,6 +1678,10 @@
                         var newKey = d.event_key ? String(d.event_key).trim() : '';
                         if (newKey) opMarkNewEventKey(newKey);
                         var finalizeReset = function (payload) {
+                            // 초기화 직후에는 패널을 먼저 비워 "리셋됨" 상태를 즉시 보여준다.
+                            window._opCurrentWinners = '';
+                            var pz = document.getElementById('op-prizes');
+                            opRenderWinnersPanel((pz && pz.value) ? pz.value : '', '');
                             opApplySelectPayload(payload || d);
                             opRefreshHistory({ skipEmptyStatus: true });
                             if (window.socket && window.socket.connected) {

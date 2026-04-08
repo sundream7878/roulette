@@ -1,5 +1,25 @@
 # 네이버 카페 댓글 수집 시스템 - 현재 상황 정리
 
+## 🧭 최근 룰렛 이슈/조치 메모 (2026-04-08)
+
+- **중복당첨 없음 체크 유지**
+  - 명단 렌더를 `participants`(당첨자 제거된 목록)가 아니라 `allowed_list` 전체 기준으로 유지
+  - 체크박스만 해제되고, 항목 순서는 고정되도록 프론트 렌더 로직 조정
+- **당첨자가 잠깐 보였다가 사라지는 현상**
+  - `game_status`/`update_event_settings`에서 빈 `winners`로 기존 표시를 덮어쓰지 않도록 방어
+  - `request_game_status`에서 빈 스냅샷 수신 시 `event_states` 마지막 정상값으로 폴백
+- **동일 당첨자가 추가당첨으로 중복되는 현상**
+  - `confirm_winner`에 스핀 라운드 식별자(`round_id`) 기반 중복 확정 가드 추가
+  - `event_id+winner` 단기 중복 가드도 유지
+- **Supabase posts 저장 경합**
+  - `id/url` 혼재 스키마에서 존재 확인/업데이트를 이중 경로로 보강
+  - insert 중복키 충돌 시 update 재시도
+
+### 다음 세션 확인 포인트
+1. 3~5회 연속 추첨 시 `winners` 문자열 중복 여부
+2. 중복당첨 없음에서 체크 해제 후 순서 유지 여부
+3. `DEBUG: Duplicate round confirm suppressed` 로그 빈도와 실제 UI 일치 여부
+
 ## 🔍 문제 분석 결과
 
 ### 실제 상황

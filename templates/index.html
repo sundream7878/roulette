@@ -1307,13 +1307,6 @@
                 allContainer.appendChild(empty);
                 return;
             }
-            var confirmed = [];
-            var unconfirmed = [];
-            allowedPairs.forEach(function (row) {
-                var nm = row[0];
-                if (confirmedSet && confirmedSet.has(nm)) confirmed.push(row);
-                else unconfirmed.push(row);
-            });
             function appendRow(row, isConfirmed) {
                 var item = document.createElement('div');
                 item.className = 'all-participant-item' + (isConfirmed ? ' is-confirmed' : '');
@@ -1332,13 +1325,11 @@
                 item.appendChild(ticketSpan);
                 allContainer.appendChild(item);
             }
-            confirmed.forEach(function (row) { appendRow(row, true); });
-            if (confirmed.length > 0 && unconfirmed.length > 0) {
-                var sep = document.createElement('div');
-                sep.className = 'participant-separator';
-                allContainer.appendChild(sep);
-            }
-            unconfirmed.forEach(function (row) { appendRow(row, false); });
+            allowedPairs.forEach(function (row) {
+                var nm = row[0];
+                var isConfirmed = !!(confirmedSet && confirmedSet.has(nm));
+                appendRow(row, isConfirmed);
+            });
         }
         function opApplySelectedEventToLivePanels(d) {
             if (!d) return;
@@ -2490,6 +2481,7 @@
                     finalAngle,
                     adjustedFinalAngle,
                     winner,
+                    roundId: data.round_id || '',
                     startTime,
                     endTime: startTime + totalDuration
                 };
@@ -2528,7 +2520,11 @@
                                 playFanfare();
                             }
 
-                            socket.emit('confirm_winner', { event_id: rouletteLiveKey(), url: rouletteLiveKey() });
+                            socket.emit('confirm_winner', {
+                                event_id: rouletteLiveKey(),
+                                url: rouletteLiveKey(),
+                                round_id: window.animationInfo.roundId || ''
+                            });
                         }
                         return;
                     }
@@ -2566,7 +2562,11 @@
                             playFanfare();
                         }
 
-                        socket.emit('confirm_winner', { event_id: rouletteLiveKey(), url: rouletteLiveKey() });
+                        socket.emit('confirm_winner', {
+                            event_id: rouletteLiveKey(),
+                            url: rouletteLiveKey(),
+                            round_id: window.animationInfo.roundId || ''
+                        });
 
                         console.log('백업 타이머로 애니메이션 종료');
                     }
@@ -3000,15 +3000,6 @@
                 Array.prototype.slice.call(allContainer.querySelectorAll('.all-participant-item, .participant-separator, .participants-empty')).forEach(function (el) {
                     if (el && el.parentNode) el.parentNode.removeChild(el);
                 });
-                var confirmed = [];
-                var unconfirmed = [];
-                nameTicketPairs.forEach(function (row) {
-                    var nm = Array.isArray(row) ? row[0] : (row && row.name);
-                    var tk = Array.isArray(row) ? row[1] : (row && row.count);
-                    if (nm === undefined || nm === null) return;
-                    if (confirmedSet && confirmedSet.has(nm)) confirmed.push([nm, tk]);
-                    else unconfirmed.push([nm, tk]);
-                });
                 function appendRow(row, isC) {
                     var item = document.createElement('div');
                     item.className = 'all-participant-item' + (isC ? ' is-confirmed' : '');
@@ -3027,13 +3018,12 @@
                     item.appendChild(ticketSpan);
                     allContainer.appendChild(item);
                 }
-                confirmed.forEach(function (row) { appendRow(row, true); });
-                if (confirmed.length > 0 && unconfirmed.length > 0) {
-                    var sep = document.createElement('div');
-                    sep.className = 'participant-separator';
-                    allContainer.appendChild(sep);
-                }
-                unconfirmed.forEach(function (row) { appendRow(row, false); });
+                nameTicketPairs.forEach(function (row) {
+                    var nm = Array.isArray(row) ? row[0] : (row && row.name);
+                    var tk = Array.isArray(row) ? row[1] : (row && row.count);
+                    if (nm === undefined || nm === null) return;
+                    appendRow([nm, tk], !!(confirmedSet && confirmedSet.has(nm)));
+                });
                 var cntEl = document.getElementById('participants-total-count');
                 if (cntEl) cntEl.textContent = String(nameTicketPairs.length);
             }

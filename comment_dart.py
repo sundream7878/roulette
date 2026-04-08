@@ -25,6 +25,7 @@ event_states = {}
 HAS_MONITOR = True  # Supabase/DB 이벤트·사전명단 사용
 _LAST_ACTIVE_EVENT_KEY = None  # Supabase 일시 장애 시 활성 이벤트 폴백 캐시
 _RECENT_CONFIRM_GUARD = {}  # key: "<event>::<winner>" -> ts
+_PROCESSED_ROUND_CONFIRM = {}  # key: round_id -> ts
 
 
 def get_allowed_list(url=None):
@@ -54,6 +55,19 @@ def _should_skip_duplicate_confirm(event_id: str, winner: str, ttl_sec: int = 12
     if prev and (now_ts - prev) < ttl_sec:
         return True
     _RECENT_CONFIRM_GUARD[key] = now_ts
+    return False
+
+
+def _is_already_processed_round(round_id: str, ttl_sec: int = 180) -> bool:
+    if not round_id:
+        return False
+    now_ts = time.time()
+    stale_keys = [k for k, ts in _PROCESSED_ROUND_CONFIRM.items() if now_ts - ts > ttl_sec]
+    for k in stale_keys:
+        _PROCESSED_ROUND_CONFIRM.pop(k, None)
+    if round_id in _PROCESSED_ROUND_CONFIRM:
+        return True
+    _PROCESSED_ROUND_CONFIRM[round_id] = now_ts
     return False
 
 
@@ -759,6 +773,8 @@ def handle_start_rotation(data):
     # 정확한 당첨자 계산 (화살표가 가리키는 섹터의 참가자)
     winner = calculate_winner_at_angle(relative_angle, p_list)
     game['final_winner'] = winner
+    round_id = f"{active_url or 'noevent'}:{int(time.time() * 1000)}:{random.randint(1000, 9999)}"
+    game['round_id'] = round_id
     
     # 게임 상태 업데이트
     game['running'] = True
@@ -771,6 +787,7 @@ def handle_start_rotation(data):
         'duration': duration,
         'finalAngle': final_angle,
         'winner': winner,
+        'round_id': round_id,
         'participants': p_list # 정확한 명단 동기화
     }, namespace='/')
         
@@ -852,6 +869,10 @@ def handle_confirm_winner(data=None):
             active_url = normalize_event_id(raw_key) if raw_key else get_active_url()
             print(f"DEBUG: Confirming winner for event id: {active_url}")
             if active_url:
+                req_round_id = (data.get('round_id') or '').strip() if isinstance(data, dict) else ''
+                if req_round_id and _is_already_processed_round(req_round_id):
+                    print(f"DEBUG: Duplicate round confirm suppressed: {req_round_id}")
+                    return
                 if _should_skip_duplicate_confirm(active_url, winner):
                     print(f"DEBUG: Duplicate confirm suppressed for {active_url} / {winner}")
                     return

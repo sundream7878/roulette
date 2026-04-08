@@ -946,6 +946,7 @@
         {% if user.is_authenticated %}
         <a href="{{ url_for('logout') }}" id="logout">로그아웃</a>
         {% endif %}
+        <div id="start-toast-inline" style="display:none; margin-top:10px; text-align:left;"></div>
     </div>
 
     <div id="controls">
@@ -2423,31 +2424,24 @@
         window.addFiftySecondsToTargetTime = addFiftySecondsToTargetTime;
 
         function showStartToast(message) {
-            var el = document.getElementById('start-toast');
-            if (!el) {
-                el = document.createElement('div');
-                el.id = 'start-toast';
-                el.style.position = 'fixed';
-                el.style.left = '50%';
-                el.style.bottom = '24px';
-                el.style.transform = 'translateX(-50%)';
-                el.style.background = 'rgba(33,33,33,0.95)';
-                el.style.color = '#fff';
-                el.style.padding = '10px 14px';
-                el.style.borderRadius = '8px';
-                el.style.fontSize = '13px';
-                el.style.fontWeight = '600';
-                el.style.zIndex = '9999';
-                el.style.boxShadow = '0 4px 16px rgba(0,0,0,0.25)';
-                el.style.opacity = '0';
-                el.style.transition = 'opacity 0.2s ease';
-                document.body.appendChild(el);
-            }
+            var el = document.getElementById('start-toast-inline');
+            if (!el) return;
+            el.style.display = 'inline-block';
+            el.style.background = 'rgba(33,33,33,0.95)';
+            el.style.color = '#fff';
+            el.style.padding = '10px 14px';
+            el.style.borderRadius = '8px';
+            el.style.fontSize = '13px';
+            el.style.fontWeight = '600';
+            el.style.boxShadow = '0 4px 16px rgba(0,0,0,0.25)';
+            el.style.opacity = '0';
+            el.style.transition = 'opacity 0.2s ease';
             el.textContent = message;
             el.style.opacity = '1';
             if (el._hideTimer) clearTimeout(el._hideTimer);
             el._hideTimer = setTimeout(function () {
                 el.style.opacity = '0';
+                setTimeout(function () { el.style.display = 'none'; }, 220);
             }, 2200);
         }
 
@@ -3166,7 +3160,14 @@
                     }
 
                     if (ed.participant_display_list && ed.participant_display_list.length) {
-                        syncDomParticipantList(ed.participant_display_list, ed.confirmed_all);
+                        var existingRows = document.querySelectorAll('#all-participants-container .all-participant-item').length;
+                        // 기존 화면 순서는 유지하고 체크 상태만 갱신 (당첨자 위치 점프 방지)
+                        // 단, 초기 진입/빈 상태일 때만 전체 목록 재구성
+                        if (existingRows === 0) {
+                            syncDomParticipantList(ed.participant_display_list, ed.confirmed_all);
+                        } else {
+                            updateConfirmedOnly(ed.confirmed_all, ed.participants || ed.participant_display_list);
+                        }
                     }
                     if (ed.participants !== undefined) {
                         updateParticipantsUI(ed.participants, null, ed.confirmed_all);

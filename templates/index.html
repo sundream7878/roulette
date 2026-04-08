@@ -130,15 +130,28 @@
             flex: 1 1 auto;
             min-height: 0;
             overflow-y: auto;
+            overflow-x: hidden;
             padding-right: 4px;
+            padding-left: 2px;
         }
 
         .prize-item {
             margin: 10px 0;
             font-weight: 600;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            display: block;
+            max-width: 100%;
+            box-sizing: border-box;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .prize-item span {
+            display: block;
+            max-width: 100%;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .winner-badge {
@@ -656,11 +669,11 @@
             border: 2px solid #4CAF50;
             border-radius: 8px;
             padding: 8px 12px;
-            margin: 12px -8px;
+            margin: 12px 0;
             box-shadow: 0 0 15px rgba(76, 175, 80, 0.4);
             animation: prize-pulse 1.5s infinite ease-in-out;
             z-index: 5;
-            transform: scale(1.05);
+            transform: scale(1.01);
             transition: all 0.3s ease;
         }
 
@@ -676,22 +689,23 @@
             border-radius: 10px;
             font-weight: bold;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            pointer-events: none;
         }
 
         @keyframes prize-pulse {
             0% {
                 box-shadow: 0 0 5px rgba(76, 175, 80, 0.4);
-                transform: scale(1.03);
+                transform: scale(1.005);
             }
 
             50% {
                 box-shadow: 0 0 20px rgba(76, 175, 80, 0.7);
-                transform: scale(1.07);
+                transform: scale(1.015);
             }
 
             100% {
                 box-shadow: 0 0 5px rgba(76, 175, 80, 0.4);
-                transform: scale(1.03);
+                transform: scale(1.005);
             }
         }
 

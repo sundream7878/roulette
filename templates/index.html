@@ -1567,9 +1567,23 @@
                 allowed_list_text: document.getElementById('op-allowed-list').value
             };
         }
+        function opBuildLivePayloadFromForm(formBody, savedResp) {
+            var body = formBody || {};
+            var resp = savedResp || {};
+            return {
+                event_key: (resp.event_key || body.event_key || opActiveKey || ''),
+                title: body.title || '',
+                prizes: body.prizes || '',
+                memo: body.memo || '',
+                winners: window._opCurrentWinners || '',
+                allow_duplicates: !!body.allow_duplicates,
+                allowed_list_text: body.allowed_list_text || ''
+            };
+        }
         window.opSave = function () {
             opSetStatus('저장 중...');
-            fetch('/api/operator/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(opFormToBody()) })
+            var body = opFormToBody();
+            fetch('/api/operator/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) })
                 .then(function (r) {
                     return r.json().then(function (d) {
                         if (!r.ok) {
@@ -1578,6 +1592,11 @@
                         }
                         if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
                         opApplySavedKey(d);
+                        // 저장 응답 소켓이 늦어도, 입력한 값을 즉시 라이브 패널에 반영한다.
+                        var livePayload = opBuildLivePayloadFromForm(body, d);
+                        opApplySelectedEventToLivePanels(livePayload);
+                        opRenderWinnersPanel(livePayload.prizes || '', livePayload.winners || '');
+                        opUpdateParticipantsTotalFromText(livePayload.allowed_list_text || '');
                         opSetStatus('저장했습니다.', false);
                         // 저장 직후에는 실시간 이벤트가 연쇄로 들어오므로 강제 새로고침을 피한다.
                         // (화면이 사라졌다 나타나는 현상/깜빡임 방지)

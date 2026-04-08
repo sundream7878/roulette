@@ -2360,7 +2360,10 @@
                 // 게스트 모드인지 확인하고 게임 상태 요청
                 const isGuestMode = document.getElementById('guest-current-time') !== null;
                 if (isGuestMode) {
-                    console.log("게스트 모드: 초기 상태 즉시 요청");
+                    // 모바일은 polling 재연결이 잦아 이벤트 전환 신호를 놓칠 수 있으므로
+                    // connect(재연결 포함) 때마다 현재 상태를 1회 즉시 동기화한다.
+                    socket.emit('request_game_status');
+                    console.log("게스트 모드: connect 시 상태 즉시 재동기화 요청");
                     let tries = 0;
                     const MAX_TRIES = 3;
                     const requestInitialStatus = function () {

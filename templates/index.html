@@ -1327,6 +1327,14 @@
             var v = map[String(key || '').trim()];
             return !!v && (now - Number(v) <= OP_NEW_BADGE_TTL_MS);
         }
+        function opIsNewKey(key) {
+            var k = String(key || '').trim();
+            if (!k) return false;
+            if (opHasNewBadge(k)) return true;
+            var draft = window._opDraftEventMeta || null;
+            if (draft && String(draft.key || '').trim() === k) return true;
+            return false;
+        }
         function opFormatApiError(d, fallback) {
             if (!d) return fallback || '';
             var m = (d.error && String(d.error)) || (fallback || '');
@@ -1387,7 +1395,7 @@
                 badge.textContent = '이벤트 ID · —';
                 return;
             }
-            var label = opHasNewBadge(k) ? '이벤트 ID · (NEW) ' : '이벤트 ID · ';
+            var label = opIsNewKey(k) ? '이벤트 ID · (NEW) ' : '이벤트 ID · ';
             badge.textContent = label + opDisplayEventKey(k);
         }
         function opApplySavedKey(d) {
@@ -1961,7 +1969,7 @@
                     opt.value = evKey;
                     var id = (evKey || '').slice(0, 32);
                     var t = (ev.title || '(제목 없음)').slice(0, 40);
-                    if (opHasNewBadge(evKey)) t = '(NEW) ' + t;
+                    if (opIsNewKey(evKey)) t = '(NEW) ' + t;
                     var dtSrc = ev.event_at || ev.updated_at || '';
                     var dt = String(dtSrc).replace('T', ' ').slice(0, 16);
                     opt.textContent = id + ' · ' + t + ' · ' + dt + ((!isDraftMode && ev.is_active) ? ' ★' : '');

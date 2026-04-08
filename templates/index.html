@@ -1988,6 +1988,7 @@
         let targetDateTime = null;
         let gameIsActive = false; // 전역 선언 추가
         window._gameIsActive = false; // Supabase RT용 선언 초기화
+        const ROULETTE_STOP_COMP_MS = 400; // 체감상 0.4초 늦게 멈추는 현상 보정
         let memoPolicyAllowDuplicates = {% if allow_duplicates_dash %}true{% else %}false{% endif %};
         let startRequestInFlight = false;
         let startRequestTimeout = null;
@@ -2686,10 +2687,13 @@
                     const remainSec = (targetUnixMs - Date.now()) / 1000;
                     if (isFinite(remainSec)) {
                         // 서버가 계산한 duration과 실제 수신 시점 잔여 시간을 맞춰 전환 지연을 줄인다.
-                        duration = Math.max(0.05, Math.min(duration > 0 ? duration : remainSec, remainSec));
+                        duration = Math.max(
+                            0.05,
+                            Math.min(duration > 0 ? duration : remainSec, remainSec) - (ROULETTE_STOP_COMP_MS / 1000)
+                        );
                     }
                 } else {
-                    duration = Math.max(0.05, duration);
+                    duration = Math.max(0.05, duration - (ROULETTE_STOP_COMP_MS / 1000));
                 }
                 const finalAngle = data.finalAngle;
                 const winner = data.winner;
@@ -3221,7 +3225,8 @@
                             const adjustedFinalAngle = finalAngle + 1; // 각도 조정
 
                             // 남은 시간으로 애니메이션 속도 조정
-                            const duration_left = data.duration_left || (diffMs / 1000);
+                            const duration_left_raw = data.duration_left || (diffMs / 1000);
+                            const duration_left = Math.max(0.05, Number(duration_left_raw) - (ROULETTE_STOP_COMP_MS / 1000));
                             const total_duration = data.total_duration || duration_left;
                             const progress = 1 - (duration_left / total_duration);
 

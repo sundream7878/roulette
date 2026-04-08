@@ -2843,6 +2843,17 @@
                 if (data.event_data && !window._operatorDraftMode) {
                     const ed = data.event_data;
                     console.log('이벤트 데이터 동기화 시도:', ed);
+                    const incomingEventKey = (ed.current_event_id || ed.current_url || ed.event_id || ed.url || '').toString().trim();
+                    const currentEventKey = rouletteLiveKey();
+                    if (incomingEventKey && (!currentEventKey || !rouletteEventKeysMatch(incomingEventKey, currentEventKey))) {
+                        console.log('[Socket] game_status 기준 이벤트 전환 감지:', currentEventKey, '->', incomingEventKey);
+                        window.rouletteActiveKey = incomingEventKey;
+                        if (!gameIsActive) {
+                            if (window._scheduleReload) window._scheduleReload('SocketIO:GameStatusEventSwitch', 700, true);
+                            else window.location.reload();
+                            return;
+                        }
+                    }
 
                     if (ed.title) {
                         const titleEl = document.getElementById('event-title-display');
@@ -3266,7 +3277,8 @@
                     // [추가] URL이 변경된 경우 즉시 새로고침 (새 이벤트 전환 대응)
                     var newEv = data.event_id || data.url;
                     var curKey = rouletteLiveKey();
-                    if (newEv && curKey && !rouletteEventKeysMatch(newEv, curKey)) {
+                    if (newEv && (!curKey || !rouletteEventKeysMatch(newEv, curKey))) {
+                        window.rouletteActiveKey = String(newEv);
                         console.log(`새로운 이벤트 ID 감지 (${newEv} vs ${curKey}), 즉시 새로고침 실행`);
                         if (window._scheduleReload) window._scheduleReload('SocketIO:NewEvent', 1000, true);
                         else window.location.reload();

@@ -1146,6 +1146,7 @@
         var opActiveKey = {{ (current_url or '')|tojson }};
         window.rouletteActiveKey = (typeof opActiveKey === 'string') ? opActiveKey : '';
         window._opRecentResetKeys = window._opRecentResetKeys || {};
+        window._opDraftEventMeta = window._opDraftEventMeta || null;
         var OP_NEW_BADGE_TTL_MS = 30 * 60 * 1000;
         /** true: 「새 이벤트로 등록」 직후~저장 전. RT/소켓 자동 새로고침이 폼을 덮어쓰지 않도록 함 */
         window._operatorDraftMode = false;
@@ -1185,6 +1186,26 @@
             }, ms);
         }
         window.opShowToast = opShowToast;
+        function opInjectDraftHistoryOption(key, eventAtText) {
+            var sel = document.getElementById('op-event-history');
+            if (!sel) return;
+            var k = String(key || '').trim();
+            if (!k) return;
+            Array.prototype.slice.call(sel.options || []).forEach(function (opt) {
+                if (opt && opt.dataset && opt.dataset.draft === '1') {
+                    try { sel.removeChild(opt); } catch (e) {}
+                }
+            });
+            var opt = document.createElement('option');
+            opt.value = k;
+            opt.dataset.draft = '1';
+            var dt = String(eventAtText || '').replace('T', ' ').slice(0, 16);
+            opt.textContent = k + ' · (NEW) 저장 전 임시 이벤트 · ' + dt;
+            if (sel.firstChild) sel.insertBefore(opt, sel.firstChild);
+            else sel.appendChild(opt);
+            sel.selectedIndex = 0;
+        }
+        window.opInjectDraftHistoryOption = opInjectDraftHistoryOption;
         window._opCurrentWinners = {{ (winners or '')|tojson }};
 
         function opSplitText(raw) {
@@ -1338,6 +1359,7 @@
         }
         function opApplySavedKey(d) {
             window._operatorDraftMode = false;
+            window._opDraftEventMeta = null;
             var key = (d && d.event_key) ? d.event_key : '';
             var hid = document.getElementById('op-event-key');
             if (hid) hid.value = key;
@@ -1354,6 +1376,7 @@
         }
         function opApplySelectPayload(d) {
             window._operatorDraftMode = false;
+            window._opDraftEventMeta = null;
             var key = d.event_key || '';
             var hid = document.getElementById('op-event-key');
             if (hid) hid.value = key;
@@ -1570,12 +1593,24 @@
         window.opRegisterNew = function () {
             if (!confirm('새 이벤트 작성 칸을 준비할까요?\n현재 입력 내용은 초기화됩니다.')) return;
             opSetStatus('새 이벤트 준비 중...');
+            opShowToast('새 이벤트 ID를 준비하는 중입니다...', 2200);
             var body = {
                 event_at: opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || '')
             };
-            fetch('/api/operator/register_new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) })
+            var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            var tm = setTimeout(function () {
+                if (ctrl) ctrl.abort();
+            }, 10000);
+            fetch('/api/operator/register_new', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(body),
+                signal: ctrl ? ctrl.signal : undefined
+            })
                 .then(function (r) {
                     return r.json().then(function (d) {
+                        clearTimeout(tm);
                         if (!r.ok) {
                             opSetStatus(opFormatApiError(d, '등록 실패 (' + r.status + ')'), true);
                             return;
@@ -1603,12 +1638,18 @@
                         var h1 = document.getElementById('event-title-display');
                         if (h1) h1.textContent = '';
                         window._operatorDraftMode = true;
+                        window._opDraftEventMeta = { key: key, event_at: d.event_at || '' };
+                        opInjectDraftHistoryOption(key, d.event_at || '');
                         // "새 이벤트로 등록"은 DB에 저장하지 않는 임시 준비 단계라
                         // 히스토리 재조회가 필요 없다. (리스트 깜빡임/지연 방지)
                         opSetStatus('새 이벤트 작성 준비 완료. 내용을 입력한 뒤 저장하세요.', false);
                     });
                 })
-                .catch(function (e) { opSetStatus('오류: ' + e, true); });
+                .catch(function (e) {
+                    clearTimeout(tm);
+                    opSetStatus('오류: ' + e, true);
+                    opShowToast('새 이벤트 등록 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.', 2600);
+                });
         };
         window.opResetWinnersFromHistory = function () {
             var sel = document.getElementById('op-event-history');
@@ -1870,6 +1911,9 @@
                     sel.appendChild(opt);
                 });
                 if (isDraftMode) {
+                    if (window._opDraftEventMeta && window._opDraftEventMeta.key) {
+                        opInjectDraftHistoryOption(window._opDraftEventMeta.key, window._opDraftEventMeta.event_at || '');
+                    }
                     sel.selectedIndex = -1;
                     return;
                 }

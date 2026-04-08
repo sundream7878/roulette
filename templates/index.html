@@ -1924,6 +1924,8 @@
         let fanfareSound = null;
         let beepLoopInterval = null;
         let beepAudio = null;
+        let currentRoundId = '';
+        let lastFanfareRoundId = '';
 
         // 색상 변환 도우미 함수
         function hexToRgba(hex, alpha) {
@@ -2358,11 +2360,16 @@
                 // 게스트 모드인지 확인하고 게임 상태 요청
                 const isGuestMode = document.getElementById('guest-current-time') !== null;
                 if (isGuestMode) {
-                    console.log("페이지 로드 시 게스트 모드 확인, 상태 요청 예약");
-                    setTimeout(function () {
-                        console.log("게스트 모드 상태 요청 실행");
+                    console.log("게스트 모드: 초기 상태 즉시 요청");
+                    let tries = 0;
+                    const MAX_TRIES = 8;
+                    const requestInitialStatus = function () {
+                        if (!window._rouletteAwaitingGameStatus || tries >= MAX_TRIES) return;
+                        tries += 1;
                         socket.emit('request_game_status');
-                    }, 2000); // 소켓 연결 대기를 위해 2초 지연
+                        setTimeout(requestInitialStatus, 1200);
+                    };
+                    requestInitialStatus();
                 }
             });
 
@@ -2402,6 +2409,7 @@
 
             socket.on('start_game', function (data) {
                 console.log('게임 시작:', data);
+                currentRoundId = (data && data.round_id) ? String(data.round_id) : '';
                 startRequestInFlight = false;
                 if (startRequestTimeout) {
                     clearTimeout(startRequestTimeout);
@@ -2590,6 +2598,9 @@
             });
 
             socket.on('update_winner', function (data) {
+                if (data && data.round_id) {
+                    currentRoundId = String(data.round_id);
+                }
                 startRequestInFlight = false;
                 if (startRequestTimeout) {
                     clearTimeout(startRequestTimeout);
@@ -2688,8 +2699,21 @@
                 }
             });
 
-            socket.on('play_fanfare', function () {
+            socket.on('play_fanfare', function (data) {
                 console.log("팡파레 재생 요청 수신");
+                const incomingRoundId = (data && data.round_id) ? String(data.round_id) : '';
+                if (incomingRoundId) {
+                    if (lastFanfareRoundId === incomingRoundId) {
+                        console.log("이미 재생한 라운드 팡파레라 무시:", incomingRoundId);
+                        return;
+                    }
+                    // 현재 회전 중 라운드와 다른 과거 라운드의 지연 이벤트는 무시
+                    if (gameIsActive && currentRoundId && incomingRoundId !== currentRoundId) {
+                        console.log("현재 라운드와 다른 지연 팡파레 이벤트 무시:", incomingRoundId, currentRoundId);
+                        return;
+                    }
+                    lastFanfareRoundId = incomingRoundId;
+                }
 
                 stopBeepLoop();
 
@@ -3314,6 +3338,11 @@
             // 네트워크가 불안정하거나 WS 차단 환경에서는 RT를 끄고 운영(저장/추첨)은 정상 동작
             if (typeof window.ENABLE_SUPABASE_RT === 'undefined') {
                 window.ENABLE_SUPABASE_RT = true;
+            }
+            var isGuestView = document.getElementById('guest-current-time') !== null;
+            if (isGuestView) {
+                // 모바일 게스트는 RT 기반 자동 새로고침보다 socket/game_status DOM 동기화가 안정적
+                window.ENABLE_SUPABASE_RT = false;
             }
             if (!window.ENABLE_SUPABASE_RT) {
                 console.log('[Supabase RT] disabled');

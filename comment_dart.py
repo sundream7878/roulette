@@ -818,6 +818,8 @@ def handle_confirm_winner(data=None):
     클라이언트에서 애니메이션이 완료된 후 호출됨
     """
     if data is None: data = {}
+    req_round_id = (data.get('round_id') or '').strip() if isinstance(data, dict) else ''
+    emit_round_id = req_round_id
     user_id = current_user.id if current_user.is_authenticated else 'anonymous'
     
     # 먼저 user_id로 게임 정보 확인
@@ -869,7 +871,6 @@ def handle_confirm_winner(data=None):
             active_url = normalize_event_id(raw_key) if raw_key else get_active_url()
             print(f"DEBUG: Confirming winner for event id: {active_url}")
             if active_url:
-                req_round_id = (data.get('round_id') or '').strip() if isinstance(data, dict) else ''
                 if req_round_id and _is_already_processed_round(req_round_id):
                     print(f"DEBUG: Duplicate round confirm suppressed: {req_round_id}")
                     return
@@ -997,9 +998,11 @@ def handle_confirm_winner(data=None):
 
         except Exception as e:
             print(f"DEBUG: Failed to save winner to DB: {e}")
+        if (not emit_round_id) and game_obj:
+            emit_round_id = str(game_obj.get('round_id') or '')
         # 당첨자 정보 전송
-        socketio.emit('update_winner', {'winner': winner}, namespace='/')
-        socketio.emit('play_fanfare', namespace='/')
+        socketio.emit('update_winner', {'winner': winner, 'round_id': emit_round_id}, namespace='/')
+        socketio.emit('play_fanfare', {'round_id': emit_round_id}, namespace='/')
 
         # [추가] 당첨자 확정 타임스탬프 저장 (10초 대기 로직용)
         try:
@@ -1154,7 +1157,8 @@ def handle_request_game_status():
             socketio.emit('start_game', {
                 'duration': duration_left,
                 'finalAngle': active_game.get('current_angle', 0),
-                'winner': active_game.get('final_winner')
+                'winner': active_game.get('final_winner'),
+                'round_id': active_game.get('round_id', '')
             }, namespace='/', to=request.sid)  # 요청한 클라이언트에게만 전송
             
             print(f"진행 중인 게임 정보 전송: 남은 시간 {duration_left:.2f}초")

@@ -2422,6 +2422,35 @@
         window.addOneMinuteToTargetTime = addOneMinuteToTargetTime;
         window.addFiftySecondsToTargetTime = addFiftySecondsToTargetTime;
 
+        function showStartToast(message) {
+            var el = document.getElementById('start-toast');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'start-toast';
+                el.style.position = 'fixed';
+                el.style.left = '50%';
+                el.style.bottom = '24px';
+                el.style.transform = 'translateX(-50%)';
+                el.style.background = 'rgba(33,33,33,0.95)';
+                el.style.color = '#fff';
+                el.style.padding = '10px 14px';
+                el.style.borderRadius = '8px';
+                el.style.fontSize = '13px';
+                el.style.fontWeight = '600';
+                el.style.zIndex = '9999';
+                el.style.boxShadow = '0 4px 16px rgba(0,0,0,0.25)';
+                el.style.opacity = '0';
+                el.style.transition = 'opacity 0.2s ease';
+                document.body.appendChild(el);
+            }
+            el.textContent = message;
+            el.style.opacity = '1';
+            if (el._hideTimer) clearTimeout(el._hideTimer);
+            el._hideTimer = setTimeout(function () {
+                el.style.opacity = '0';
+            }, 2200);
+        }
+
         function startRotation() {
             console.log('시작 버튼 클릭됨');
             if (window._rouletteEventClosed) {
@@ -2470,6 +2499,15 @@
             const [localH, localM, localS] = timeInput.split(':').map(Number);
             const localDate = new Date();
             localDate.setHours(localH, localM, localS, 0);
+            const leadMs = localDate.getTime() - Date.now();
+            if (leadMs <= 30000) {
+                showStartToast('슈팅시간은 현재시각 기준 30초 이상으로 설정해 주세요. (권장: 30초~1분)');
+                startRequestInFlight = false;
+                startBtn.disabled = false;
+                startBtn.innerText = '시작';
+                if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
+                return;
+            }
             const utcMs = localDate.getTime();
             const utcDate = new Date(utcMs);
             const utcHours = utcDate.getUTCHours().toString().padStart(2, '0');

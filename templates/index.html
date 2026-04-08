@@ -2395,6 +2395,18 @@
                 console.error("팡파레 재생 중 오류:", e);
             }
         }
+        function playFanfareOncePerRound(roundId, sourceTag) {
+            const rid = (roundId || '').toString().trim();
+            if (rid) {
+                if (lastFanfareRoundId === rid) {
+                    console.log("팡파레 중복 재생 방지:", rid, sourceTag || '');
+                    return false;
+                }
+                lastFanfareRoundId = rid;
+            }
+            playFanfare();
+            return true;
+        }
 
         // 카운트다운 함수
         function startCountdown(durationInSeconds) {
@@ -2912,7 +2924,7 @@
                                 window._winnerDisplayed = true;
                                 winnerOverlay.style.animation = 'winner-popup 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
                                 console.log('애니메이션 종료 후 즉시 당첨 발표:', winnerName);
-                                playFanfare();
+                                playFanfareOncePerRound(window.animationInfo.roundId || '', 'local-animate-end');
                             }
 
                             socket.emit('confirm_winner', {
@@ -2954,7 +2966,7 @@
                             winnerOverlay.style.display = 'block';
                             window._winnerDisplayed = true;
                             winnerOverlay.style.animation = 'winner-popup 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
-                            playFanfare();
+                            playFanfareOncePerRound(window.animationInfo.roundId || '', 'local-backup-timer');
                         }
 
                         socket.emit('confirm_winner', {
@@ -3089,7 +3101,7 @@
                 stopBeepLoop();
 
                 setTimeout(() => {
-                    playFanfare();
+                    playFanfareOncePerRound(incomingRoundId, 'socket-event');
                 }, 100);
             });
 

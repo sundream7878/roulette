@@ -1371,6 +1371,17 @@
             if (m && m[1]) return 'legacy-' + m[1];
             return raw.length > 24 ? raw.slice(0, 24) + '...' : raw;
         }
+        function opSetIdBadge(key) {
+            var badge = document.getElementById('op-id-badge');
+            if (!badge) return;
+            var k = String(key || '').trim();
+            if (!k) {
+                badge.textContent = '이벤트 ID · —';
+                return;
+            }
+            var label = opHasNewBadge(k) ? '이벤트 ID · (NEW) ' : '이벤트 ID · ';
+            badge.textContent = label + opDisplayEventKey(k);
+        }
         function opApplySavedKey(d) {
             window._operatorDraftMode = false;
             window._opDraftEventMeta = null;
@@ -1379,8 +1390,7 @@
             if (hid) hid.value = key;
             opActiveKey = key;
             window.rouletteActiveKey = key;
-            var badge = document.getElementById('op-id-badge');
-            if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(key);
+            opSetIdBadge(key);
             var tit = document.getElementById('op-title');
             var h1 = document.getElementById('event-title-display');
             if (h1 && tit) h1.textContent = tit.value || h1.textContent;
@@ -1396,8 +1406,7 @@
             if (hid) hid.value = key;
             opActiveKey = key;
             window.rouletteActiveKey = key;
-            var badge = document.getElementById('op-id-badge');
-            if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(key);
+            opSetIdBadge(key);
             document.getElementById('op-title').value = d.title || '';
             var opPrizes = document.getElementById('op-prizes');
             var opMemo = document.getElementById('op-memo');
@@ -1650,8 +1659,8 @@
                         if (hid) hid.value = key;
                         opActiveKey = key;
                         window.rouletteActiveKey = key;
-                        var badge = document.getElementById('op-id-badge');
-                        if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(key);
+                        opMarkNewEventKey(key);
+                        opSetIdBadge(key);
                         // 새 ID 준비 단계에서는 기존 폼 내용을 유지해 "복사본 작성" 흐름을 보장한다.
                         // (저장 전에도 제목/일시/명단/사은품이 일치하도록 즉시 반영)
                         document.getElementById('op-title').value = snapshot.title || '';
@@ -1685,7 +1694,7 @@
                         opInjectDraftHistoryOption(key, draftEventAt);
                         // "새 이벤트로 등록"은 DB에 저장하지 않는 임시 준비 단계라
                         // 히스토리 재조회가 필요 없다. (리스트 깜빡임/지연 방지)
-                        opSetStatus('새 이벤트(ID) 복사본 준비 완료. 내용을 확인/수정한 뒤 저장하세요.', false);
+                        opSetStatus('새 이벤트 작성 준비 완료. 내용을 입력한 뒤 저장하세요.', false);
                     });
                 })
                 .catch(function (e) {
@@ -2040,8 +2049,7 @@
         opBindAllowedListCounter();
         opInitEventAtPicker();
         (function initBadge() {
-            var badge = document.getElementById('op-id-badge');
-            if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(opActiveKey || '');
+            opSetIdBadge(opActiveKey || '');
         })();
         opRenderWinnersPanel(
             (document.getElementById('op-prizes') || {}).value || '',

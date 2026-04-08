@@ -1126,6 +1126,8 @@
     (function () {
         var opActiveKey = {{ (current_url or '')|tojson }};
         window.rouletteActiveKey = (typeof opActiveKey === 'string') ? opActiveKey : '';
+        window._opRecentResetKeys = window._opRecentResetKeys || {};
+        var OP_NEW_BADGE_TTL_MS = 30 * 60 * 1000;
         /** true: 「새 이벤트로 등록」 직후~저장 전. RT/소켓 자동 새로고침이 폼을 덮어쓰지 않도록 함 */
         window._operatorDraftMode = false;
 
@@ -1134,6 +1136,20 @@
             if (el) { el.textContent = t; el.style.color = err ? '#c62828' : '#2e7d32'; }
         }
         window.opSetStatus = opSetStatus;
+        function opMarkNewEventKey(key) {
+            var k = String(key || '').trim();
+            if (!k) return;
+            window._opRecentResetKeys[k] = Date.now();
+        }
+        function opHasNewBadge(key) {
+            var now = Date.now();
+            var map = window._opRecentResetKeys || {};
+            Object.keys(map).forEach(function (k) {
+                if (now - Number(map[k] || 0) > OP_NEW_BADGE_TTL_MS) delete map[k];
+            });
+            var v = map[String(key || '').trim()];
+            return !!v && (now - Number(v) <= OP_NEW_BADGE_TTL_MS);
+        }
         function opFormatApiError(d, fallback) {
             if (!d) return fallback || '';
             var m = (d.error && String(d.error)) || (fallback || '');
@@ -1477,8 +1493,32 @@
                             return;
                         }
                         if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
-                        opApplySelectPayload(d);
-                        opSetStatus('당첨자 초기화 완료: 새 이벤트 ID로 전환했습니다.', false);
+                        var newKey = d.event_key ? String(d.event_key).trim() : '';
+                        if (newKey) opMarkNewEventKey(newKey);
+                        var finalizeReset = function (payload) {
+                            opApplySelectPayload(payload || d);
+                            opRefreshHistory({ skipEmptyStatus: true });
+                            if (window.socket && window.socket.connected) {
+                                window.socket.emit('request_game_status');
+                            }
+                            opSetStatus('당첨자 초기화 완료: 새 이벤트 ID로 전환했습니다.', false);
+                        };
+                        if (newKey) {
+                            fetch('/api/operator/select', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'same-origin',
+                                body: JSON.stringify({ event_key: newKey })
+                            })
+                                .then(function (r2) { return r2.json(); })
+                                .then(function (d2) {
+                                    if (d2 && !d2.error) finalizeReset(d2);
+                                    else finalizeReset(d);
+                                })
+                                .catch(function () { finalizeReset(d); });
+                            return;
+                        }
+                        finalizeReset(d);
                     });
                 })
                 .catch(function (e) { opSetStatus('오류: ' + e, true); });
@@ -1641,6 +1681,7 @@
                     opt.value = evKey;
                     var id = (evKey || '').slice(0, 32);
                     var t = (ev.title || '(제목 없음)').slice(0, 40);
+                    if (opHasNewBadge(evKey)) t = '(NEW) ' + t;
                     var dtSrc = ev.event_at || ev.updated_at || '';
                     var dt = String(dtSrc).replace('T', ' ').slice(0, 16);
                     opt.textContent = id + ' · ' + t + ' · ' + dt + ((!isDraftMode && ev.is_active) ? ' ★' : '');

@@ -1165,8 +1165,15 @@
             s = s
                 .replace(/\\r\\n/g, '\n')
                 .replace(/\\n/g, '\n')
-                .replace(/\r/g, '\n');
-            return s.split(/[,\n]+/).map(function (v) { return String(v || '').trim(); }).filter(function (v) { return !!v; });
+                .replace(/\r/g, '\n')
+                .replace(/<br\s*\/?>/gi, '\n');
+            var items = s.split(/[,\n]+/).map(function (v) { return String(v || '').trim(); }).filter(function (v) { return !!v; });
+            // 최종 안전장치: 줄바꿈/콤마가 완전히 유실되어 공백으로만 이어진 경우 2칸 이상 공백 기준 분해
+            if (items.length <= 1) {
+                var fallback = s.split(/\s{2,}/).map(function (v) { return String(v || '').trim(); }).filter(function (v) { return !!v; });
+                if (fallback.length > 1) return fallback;
+            }
+            return items;
         }
         function opRenderWinnersPanel(prizesText, winnersText) {
             var sel = document.getElementById('op-winners-list');

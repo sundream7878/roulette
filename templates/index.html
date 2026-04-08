@@ -1175,11 +1175,31 @@
             }
             return items;
         }
+        function opPrizeRowsFromUi() {
+            var out = [];
+            var root = document.getElementById('prize-list');
+            if (!root) return out;
+            var rows = root.querySelectorAll('.prize-item span');
+            rows.forEach(function (el) {
+                var t = String(el.textContent || '').trim();
+                if (!t) return;
+                if (t.indexOf('(사은품 모두 소진)') >= 0) return;
+                // "사은품: 당첨자명" 형태로 이미 렌더된 경우, 사은품 부분만 추출
+                var idx = t.indexOf(':');
+                if (idx > 0) t = t.slice(0, idx).trim();
+                out.push(t);
+            });
+            return out;
+        }
         function opRenderWinnersPanel(prizesText, winnersText) {
             var sel = document.getElementById('op-winners-list');
             if (!sel) return;
             var prizes = opSplitText(prizesText);
             var winners = opSplitText(winnersText);
+            if (prizes.length <= 1) {
+                var fromUi = opPrizeRowsFromUi();
+                if (fromUi.length > prizes.length) prizes = fromUi;
+            }
             sel.innerHTML = '';
             if (!prizes.length && !winners.length) {
                 var empty = document.createElement('option');
@@ -1192,11 +1212,11 @@
             }
             var rowCount = Math.max(prizes.length, winners.length);
             for (var idx = 0; idx < rowCount; idx += 1) {
-                var name = winners[idx] || '(미당첨)';
+                var name = winners[idx] || '';
                 var prize = prizes[idx] || '추가당첨';
                 var opt = document.createElement('option');
                 opt.value = String(idx);
-                opt.textContent = (idx + 1) + '. ' + prize + '  ->  ' + name;
+                opt.textContent = (idx + 1) + '. ' + prize + (name ? ('  ->  ' + name) : '');
                 if (!winners[idx]) opt.disabled = true; // 미당첨 행은 선택 삭제 대상 아님
                 sel.appendChild(opt);
             }

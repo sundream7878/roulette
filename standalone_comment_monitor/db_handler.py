@@ -166,13 +166,37 @@ class CommentDatabase:
                 .execute()
             )
             exists = bool(q.data or [])
+            # 스키마 혼재(id/url 동시 존재) 시 url 기준 존재도 확인
+            if (not exists) and self._post_has_id_col and self._post_has_url_col and self._post_key_col == "id":
+                q2 = (
+                    self.supabase.table("posts")
+                    .select("url")
+                    .eq("url", event_id)
+                    .limit(1)
+                    .execute()
+                )
+                exists = bool(q2.data or [])
         except Exception:
             exists = False
 
         if exists:
             self.supabase.table("posts").update(post_data).eq(self._post_key_col, event_id).execute()
+            if self._post_has_id_col and self._post_has_url_col and self._post_key_col == "id":
+                try:
+                    self.supabase.table("posts").update(post_data).eq("url", event_id).execute()
+                except Exception:
+                    pass
         else:
-            self.supabase.table("posts").insert(post_data).execute()
+            try:
+                self.supabase.table("posts").insert(post_data).execute()
+            except Exception:
+                # insert 경합/중복키 충돌 시 update 재시도
+                self.supabase.table("posts").update(post_data).eq(self._post_key_col, event_id).execute()
+                if self._post_has_id_col and self._post_has_url_col and self._post_key_col == "id":
+                    try:
+                        self.supabase.table("posts").update(post_data).eq("url", event_id).execute()
+                    except Exception:
+                        pass
 
     def _row_event_key(self, row: Dict[str, Any]) -> Optional[str]:
         if not isinstance(row, dict):

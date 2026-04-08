@@ -24,6 +24,7 @@ event_states = {}
 
 HAS_MONITOR = True  # Supabase/DB 이벤트·사전명단 사용
 _LAST_ACTIVE_EVENT_KEY = None  # Supabase 일시 장애 시 활성 이벤트 폴백 캐시
+_RECENT_CONFIRM_GUARD = {}  # key: "<event>::<winner>" -> ts
 
 
 def get_allowed_list(url=None):
@@ -39,6 +40,21 @@ def _is_effectively_empty_event_fetch(participants_dict, title, prizes, memo, wi
     no_winners = not str(winners or "").strip()
     no_allowed = not str(allowed_list_text or "").strip()
     return no_participants and no_title and no_prizes and no_memo and no_winners and no_allowed
+
+
+def _should_skip_duplicate_confirm(event_id: str, winner: str, ttl_sec: int = 12) -> bool:
+    """짧은 시간 내 동일 이벤트/당첨자 confirm 중복 요청을 무시."""
+    now_ts = time.time()
+    # 오래된 키 정리
+    stale_keys = [k for k, ts in _RECENT_CONFIRM_GUARD.items() if now_ts - ts > max(30, ttl_sec * 2)]
+    for k in stale_keys:
+        _RECENT_CONFIRM_GUARD.pop(k, None)
+    key = f"{event_id}::{winner}"
+    prev = _RECENT_CONFIRM_GUARD.get(key)
+    if prev and (now_ts - prev) < ttl_sec:
+        return True
+    _RECENT_CONFIRM_GUARD[key] = now_ts
+    return False
 
 
 def _is_hangul_char(ch: str) -> bool:
@@ -836,6 +852,9 @@ def handle_confirm_winner(data=None):
             active_url = normalize_event_id(raw_key) if raw_key else get_active_url()
             print(f"DEBUG: Confirming winner for event id: {active_url}")
             if active_url:
+                if _should_skip_duplicate_confirm(active_url, winner):
+                    print(f"DEBUG: Duplicate confirm suppressed for {active_url} / {winner}")
+                    return
                 # 1. 현재 데이터 모두 가져오기 (덮어쓰기 방지)
                 dataset = db.get_data(active_url)
                 if not dataset:

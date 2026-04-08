@@ -2,6 +2,7 @@
 """로그인한 운영자 전용 API (이벤트·명단·사은품 — Supabase/DB)."""
 from datetime import datetime
 from typing import Optional, Tuple
+import unicodedata
 
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required
@@ -407,3 +408,110 @@ def api_snapshot():
         "allowed_list_text": allowed_list or "",
         "event_at": event_at or "",
     })
+
+
+@operator_bp.post("/winners/reset")
+@login_required
+def api_winners_reset():
+    """현재(또는 지정) 이벤트의 당첨자만 초기화. (같은 event_key 유지)"""
+    data = request.get_json(silent=True) or {}
+    raw = (data.get("event_key") or "").strip()
+    key = normalize_event_id(raw) if raw else _db().get_active_event_id()
+    if not key:
+        return jsonify({"error": "event_key 필요"}), 400
+
+    participants, last_id, _, title, prizes, memo, _, allow_duplicates, allowed_list, event_at = _db().get_data(
+        key, include_commenters=False
+    )
+    participants = dict(participants or {})
+
+    # 다시 돌려볼 수 있게: 사전 명단이 있으면 참가자 풀을 사전 명단 기준으로 복원
+    if allowed_list is not None:
+        parsed = parse_allowed_list_text(allowed_list or "")
+        if parsed:
+            rebuilt = {}
+            for name, tickets in parsed.items():
+                nm = unicodedata.normalize("NFC", str(name).strip())
+                try:
+                    t = int(tickets)
+                except (TypeError, ValueError):
+                    t = 1
+                rebuilt[nm] = (t, None)
+            participants = rebuilt
+
+    ok, err_detail = _db().save_data_blocking(
+        key,
+        participants,
+        last_id or "",
+        title=title or "",
+        prizes=prizes or "",
+        memo=memo or "",
+        winners="",
+        allow_duplicates=bool(allow_duplicates),
+        allowed_list=allowed_list or "",
+        event_at=event_at,
+    )
+    if not ok:
+        return _operator_storage_error_response(err_detail)
+
+    _broadcast_active_event_changed(key)
+    return jsonify({"ok": True, "event_key": key, "winners": ""})
+
+
+@operator_bp.post("/winners/delete")
+@login_required
+def api_winners_delete():
+    """현재(또는 지정) 이벤트의 당첨자 목록에서 선택 항목 1개만 제거."""
+    data = request.get_json(silent=True) or {}
+    raw = (data.get("event_key") or "").strip()
+    key = normalize_event_id(raw) if raw else _db().get_active_event_id()
+    if not key:
+        return jsonify({"error": "event_key 필요"}), 400
+
+    try:
+        winner_index = int(data.get("winner_index"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "winner_index 필요"}), 400
+
+    participants, last_id, _, title, prizes, memo, winners, allow_duplicates, allowed_list, event_at = _db().get_data(
+        key, include_commenters=False
+    )
+    participants = dict(participants or {})
+    winner_list = [w.strip() for w in str(winners or "").split(",") if w and w.strip()]
+    if winner_index < 0 or winner_index >= len(winner_list):
+        return jsonify({"error": "유효한 당첨자 인덱스가 아닙니다."}), 400
+
+    removed_winner = unicodedata.normalize("NFC", winner_list[winner_index])
+    del winner_list[winner_index]
+    new_winners = ",".join(winner_list)
+
+    # 중복 비허용 정책에서 당첨자를 지웠다면 다시 참가자 풀에 복원
+    if allow_duplicates is False and removed_winner:
+        restored_tickets = 1
+        if allowed_list is not None:
+            parsed = parse_allowed_list_text(allowed_list or "")
+            if removed_winner in parsed:
+                try:
+                    restored_tickets = int(parsed[removed_winner])
+                except (TypeError, ValueError):
+                    restored_tickets = 1
+        if removed_winner not in participants:
+            participants[removed_winner] = (restored_tickets, None)
+
+    ok, err_detail = _db().save_data_blocking(
+        key,
+        participants,
+        last_id or "",
+        title=title or "",
+        prizes=prizes or "",
+        memo=memo or "",
+        winners=new_winners,
+        allow_duplicates=bool(allow_duplicates),
+        allowed_list=allowed_list or "",
+        event_at=event_at,
+    )
+    if not ok:
+        return _operator_storage_error_response(err_detail)
+
+    _broadcast_active_event_changed(key)
+    return jsonify({"ok": True, "event_key": key, "winners": new_winners})

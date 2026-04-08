@@ -1112,9 +1112,19 @@
                 <button type="button" class="op-btn-cancel-roulette" id="op-roulette-cancel-btn" onclick="opCancelRouletteEvent()" disabled>종료 취소</button>
             </div>
         </div>
-        <div class="op-row">
-            <label>참가 명단 (별명 + 티켓 수)</label>
-            <textarea id="op-allowed-list">{{ allowed_list_text or '' }}</textarea>
+        <div class="op-row" style="display:flex; gap:12px; align-items:stretch;">
+            <div style="flex:1; min-width:0;">
+                <label>참가 명단 (별명 + 티켓 수)</label>
+                <textarea id="op-allowed-list">{{ allowed_list_text or '' }}</textarea>
+            </div>
+            <div style="flex:1; min-width:0;">
+                <label>당첨자 명단 (사은품 ↔ 당첨자)</label>
+                <select id="op-winners-list" size="9" style="width:100%; min-height:220px; padding:8px; border:1px solid #ddd; border-radius:6px;"></select>
+                <div style="margin-top:8px; display:flex; gap:8px;">
+                    <button type="button" class="op-btn-reset" style="flex:1;" onclick="opResetWinnersOnly()">당첨자 리셋</button>
+                    <button type="button" class="op-btn-delete" style="flex:1;" onclick="opDeleteSelectedWinner()">선택 삭제</button>
+                </div>
+            </div>
         </div>
         <div class="op-actions">
             <button type="button" class="op-btn-save" onclick="opSave()">저장</button>
@@ -1136,6 +1146,56 @@
             if (el) { el.textContent = t; el.style.color = err ? '#c62828' : '#2e7d32'; }
         }
         window.opSetStatus = opSetStatus;
+        window._opCurrentWinners = {{ (winners or '')|tojson }};
+
+        function opSplitText(raw) {
+            var s = String(raw || '');
+            if (!s.trim()) return [];
+            return s.split(/[,\n]+/).map(function (v) { return String(v || '').trim(); }).filter(function (v) { return !!v; });
+        }
+        function opRenderWinnersPanel(prizesText, winnersText) {
+            var sel = document.getElementById('op-winners-list');
+            if (!sel) return;
+            var prizes = opSplitText(prizesText);
+            var winners = opSplitText(winnersText);
+            sel.innerHTML = '';
+            if (!winners.length) {
+                var empty = document.createElement('option');
+                empty.value = '';
+                empty.textContent = '(당첨자 없음)';
+                empty.disabled = true;
+                empty.selected = true;
+                sel.appendChild(empty);
+                return;
+            }
+            winners.forEach(function (name, idx) {
+                var prize = prizes[idx] || '추가당첨';
+                var opt = document.createElement('option');
+                opt.value = String(idx);
+                opt.textContent = (idx + 1) + '. ' + prize + '  ->  ' + name;
+                sel.appendChild(opt);
+            });
+            sel.selectedIndex = 0;
+        }
+        window.opRenderWinnersPanel = opRenderWinnersPanel;
+
+        function opRefreshCurrentSnapshot(afterMessage) {
+            var key = ((document.getElementById('op-event-key') || {}).value || opActiveKey || '').trim();
+            if (!key) return;
+            fetch('/api/operator/select', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ event_key: key })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d && !d.error) {
+                        opApplySelectPayload(d);
+                        if (afterMessage) opSetStatus(afterMessage, false);
+                    }
+                });
+        }
         function opMarkNewEventKey(key) {
             var k = String(key || '').trim();
             if (!k) return;
@@ -1216,6 +1276,7 @@
             if (h1 && tit) h1.textContent = tit.value || h1.textContent;
             opRefreshHistory({ skipEmptyStatus: true });
             opUpdateParticipantsTotalFromText(document.getElementById('op-allowed-list').value || '');
+            opRenderWinnersPanel(document.getElementById('op-prizes').value || '', window._opCurrentWinners || '');
         }
         function opApplySelectPayload(d) {
             window._operatorDraftMode = false;
@@ -1245,6 +1306,8 @@
             }
             var h1 = document.getElementById('event-title-display');
             if (h1) h1.textContent = d.title || '';
+            window._opCurrentWinners = d.winners || '';
+            opRenderWinnersPanel(d.prizes || '', d.winners || '');
             opRefreshHistory({ skipEmptyStatus: true });
             opUpdateParticipantsTotalFromText(d.allowed_list_text || '');
             opApplySelectedEventToLivePanels(d);
@@ -1590,6 +1653,55 @@
                     document.getElementById('op-csv').value = '';
                 }).catch(function (e) { opSetStatus('오류: ' + e, true); });
         };
+        window.opResetWinnersOnly = function () {
+            var key = ((document.getElementById('op-event-key') || {}).value || opActiveKey || '').trim();
+            if (!key) { opSetStatus('먼저 이벤트를 선택해 주세요.', true); return; }
+            if (!confirm('이 이벤트의 당첨자를 모두 초기화할까요?')) return;
+            opSetStatus('당첨자 리셋 중...');
+            fetch('/api/operator/winners/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ event_key: key })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d && d.error) { opSetStatus(opFormatApiError(d), true); return; }
+                    window._opCurrentWinners = '';
+                    opRenderWinnersPanel(document.getElementById('op-prizes').value || '', '');
+                    opRefreshCurrentSnapshot('당첨자를 모두 초기화했습니다.');
+                })
+                .catch(function (e) { opSetStatus('오류: ' + e, true); });
+        };
+        window.opDeleteSelectedWinner = function () {
+            var key = ((document.getElementById('op-event-key') || {}).value || opActiveKey || '').trim();
+            if (!key) { opSetStatus('먼저 이벤트를 선택해 주세요.', true); return; }
+            var sel = document.getElementById('op-winners-list');
+            if (!sel || sel.selectedIndex < 0 || sel.options[sel.selectedIndex].disabled) {
+                opSetStatus('삭제할 당첨자를 선택해 주세요.', true);
+                return;
+            }
+            var idx = parseInt(sel.options[sel.selectedIndex].value, 10);
+            if (isNaN(idx)) {
+                opSetStatus('삭제할 당첨자를 선택해 주세요.', true);
+                return;
+            }
+            opSetStatus('선택 당첨자 삭제 중...');
+            fetch('/api/operator/winners/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ event_key: key, winner_index: idx })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d && d.error) { opSetStatus(opFormatApiError(d), true); return; }
+                    window._opCurrentWinners = (d && d.winners) ? String(d.winners) : '';
+                    opRenderWinnersPanel(document.getElementById('op-prizes').value || '', window._opCurrentWinners);
+                    opRefreshCurrentSnapshot('선택한 당첨자를 삭제했습니다.');
+                })
+                .catch(function (e) { opSetStatus('오류: ' + e, true); });
+        };
         window._rouletteEndAwaitingSocket = false;
         window._rouletteEndLoadingStart = null;
         window.ROULETTE_END_LOADING_MIN_MS = 2800;
@@ -1768,6 +1880,10 @@
             var badge = document.getElementById('op-id-badge');
             if (badge) badge.textContent = '이벤트 ID · ' + opDisplayEventKey(opActiveKey || '');
         })();
+        opRenderWinnersPanel(
+            (document.getElementById('op-prizes') || {}).value || '',
+            window._opCurrentWinners || ''
+        );
     })();
     </script>
     {% endif %}

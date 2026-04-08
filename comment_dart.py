@@ -1037,9 +1037,22 @@ def handle_request_game_status():
                     if (allow_duplicates != False) else list(set(p_names))
                 )
 
-                # 명단 UI 동기화: allowed_list 텍스트 없이 participants DB만 있는 경우 대비
+                # 명단 UI는 항상 "전체 사전 명단"을 우선 사용(중복비허용 시 당첨자를 체크 해제로만 표현)
                 participant_display_list = []
-                if participants_dict:
+                allowed_dict_ui = get_allowed_list(active_url)
+                if allowed_dict_ui:
+                    for name, tickets in allowed_dict_ui.items():
+                        nm = unicodedata.normalize("NFC", str(name).strip())
+                        try:
+                            t = int(tickets)
+                        except (TypeError, ValueError):
+                            t = 1
+                        participant_display_list.append((nm, t))
+                    participant_display_list.sort(
+                        key=lambda x: _ko_first_name_key(x[0])
+                    )
+                elif participants_dict:
+                    # 하위 호환: allowed_list 가 없을 때만 participants 로 표시
                     for name, v in participants_dict.items():
                         participant_display_list.append(
                             (name, _normalize_ticket_count(v))
@@ -1047,19 +1060,6 @@ def handle_request_game_status():
                     participant_display_list.sort(
                         key=lambda x: _ko_first_name_key(x[0])
                     )
-                else:
-                    allowed_dict_ui = get_allowed_list(active_url)
-                    if allowed_dict_ui:
-                        for name, tickets in allowed_dict_ui.items():
-                            nm = unicodedata.normalize("NFC", str(name).strip())
-                            try:
-                                t = int(tickets)
-                            except (TypeError, ValueError):
-                                t = 1
-                            participant_display_list.append((nm, t))
-                        participant_display_list.sort(
-                            key=lambda x: _ko_first_name_key(x[0])
-                        )
                 
                 active_event_data = {
                     'title': title,

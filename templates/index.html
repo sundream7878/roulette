@@ -1713,6 +1713,15 @@
                 : (Object.prototype.hasOwnProperty.call(ed, 'participants') || displayCount > 0);
             return hasPrizes && hasMemo && hasParticipants;
         }
+        function shouldApplyIncomingWinners(nextWinnersRaw, currentWinnersRaw) {
+            var nextW = String(nextWinnersRaw == null ? '' : nextWinnersRaw).trim();
+            var curW = String(currentWinnersRaw == null ? '' : currentWinnersRaw).trim();
+            if (nextW) return true;
+            if (!curW) return true;
+            // 이벤트 전환(새 이벤트/초기 상태) 중에는 빈 winners 적용 허용
+            if (window._rouletteAwaitingGameStatus || !!window._rouletteSwitchTargetKey) return true;
+            return false;
+        }
         const socket = io();
         window.socket = socket;
         let chart;
@@ -2768,7 +2777,9 @@
                                     prizeListEl.dataset.prizes = nextPr;
                                 }
                             }
-                            if (ed.winners !== undefined) prizeListEl.dataset.winners = ed.winners || '';
+                            if (ed.winners !== undefined && shouldApplyIncomingWinners(ed.winners, prizeListEl.dataset.winners || '')) {
+                                prizeListEl.dataset.winners = ed.winners || '';
+                            }
 
                             renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
                         }
@@ -3172,7 +3183,9 @@
                             prizeListEl.dataset.prizes = nextPr;
                         }
                     }
-                    if (data.winners !== undefined) prizeListEl.dataset.winners = data.winners || "";
+                    if (data.winners !== undefined && shouldApplyIncomingWinners(data.winners, prevWinners)) {
+                        prizeListEl.dataset.winners = data.winners || "";
+                    }
                     // 게임 중이라도 사은품 목록은 항상 최신화 (당첨자 표시를 위해)
                     renderPrizes(prizeListEl.dataset.prizes, prizeListEl.dataset.winners);
                 }

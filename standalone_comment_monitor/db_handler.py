@@ -420,6 +420,30 @@ class CommentDatabase:
         allow_duplicates = False
         event_at_str: Optional[str] = None
 
+        def _best_post_row(rows):
+            """중복 rows가 있을 때 가장 최신/완전한 행을 고른다."""
+            if not rows:
+                return None
+            if len(rows) == 1:
+                return rows[0]
+
+            def _score(r):
+                title_len = len(str(r.get("title") or "").strip())
+                prizes_len = len(str(r.get("prizes") or "").strip())
+                memo_len = len(str(r.get("memo") or "").strip())
+                winners_len = len(str(r.get("winners") or "").strip())
+                allowed_len = len(str(r.get("allowed_list") or "").strip())
+                active_bonus = 1 if bool(r.get("is_active", False)) else 0
+                updated = str(r.get("updated_at") or r.get("event_at") or "")
+                # 완성도 우선 + 최신성 보조
+                return (
+                    winners_len + prizes_len + memo_len + title_len + allowed_len,
+                    active_bonus,
+                    updated,
+                )
+
+            return max(rows, key=_score)
+
         try:
             res = self.supabase.table("posts").select("*").eq(self._post_key_col, event_id).execute()
             if not (res.data or []) and self._post_has_id_col and self._post_has_url_col:
@@ -427,7 +451,7 @@ class CommentDatabase:
                 res = self.supabase.table("posts").select("*").eq(alt_col, event_id).execute()
             if res.data:
                 print(f"DEBUG: [get_data] Fetching data from Supabase for {event_id}")
-                post = res.data[0]
+                post = _best_post_row(res.data)
                 last_id = post.get("last_comment_id")
                 title = post.get("title")
                 prizes = post.get("prizes")

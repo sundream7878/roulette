@@ -2362,12 +2362,12 @@
                 if (isGuestMode) {
                     console.log("게스트 모드: 초기 상태 즉시 요청");
                     let tries = 0;
-                    const MAX_TRIES = 8;
+                    const MAX_TRIES = 3;
                     const requestInitialStatus = function () {
                         if (!window._rouletteAwaitingGameStatus || tries >= MAX_TRIES) return;
                         tries += 1;
                         socket.emit('request_game_status');
-                        setTimeout(requestInitialStatus, 1200);
+                        setTimeout(requestInitialStatus, 1800);
                     };
                     requestInitialStatus();
                 }

@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import json
+import copy
 import unicodedata
 import random
 import datetime
@@ -21,6 +22,8 @@ from operator_routes import operator_bp
 db = CommentDatabase()
 # 과거 monitor_view와 공유하던 메모리 상태 (선택적 동기화)
 event_states = {}
+_EVENT_SYNC_CACHE = {}  # key: event_id -> {"ts": float, "payload": dict}
+_EVENT_SYNC_TTL_SEC = 1.2
 
 HAS_MONITOR = True  # Supabase/DB 이벤트·사전명단 사용
 _LAST_ACTIVE_EVENT_KEY = None  # Supabase 일시 장애 시 활성 이벤트 폴백 캐시
@@ -961,6 +964,7 @@ def handle_confirm_winner(data=None):
                     # 이미 당첨된 사람을 seen_ids 에서도 관리하여 재진입 방지 (선택 사항)
                     # st.setdefault('seen_ids', set()).add(winner)
                     pass
+                _EVENT_SYNC_CACHE.pop(active_url, None)
 
                 # 5. 브로드캐스트
                 socketio.emit('update_event_settings', {
@@ -1047,86 +1051,93 @@ def handle_request_game_status():
         try:
             active_url = get_active_url()
             if active_url:
-                participants_dict, last_id, all_commenter_list, title, prizes, memo, winners, allow_duplicates, _, _ = db.get_data(
-                    active_url, include_commenters=False
-                )
-                # Supabase 일시 오류로 빈 데이터가 내려오면 마지막 정상 스냅샷으로 폴백
-                cached = event_states.get(active_url) if active_url else None
-                if _is_effectively_empty_event_fetch(participants_dict, title, prizes, memo, winners, None) and cached:
-                    print(f"DEBUG: [game_status] using cached snapshot for {active_url}")
-                    participants_dict = dict(cached.get('participants') or {})
-                    title = cached.get('title', title)
-                    prizes = cached.get('prizes', prizes)
-                    memo = cached.get('memo', memo)
-                    winners = cached.get('winners', winners)
-                    allow_duplicates = cached.get('allow_duplicates', allow_duplicates)
-
-                p_list_for_roulette = []
-                if participants_dict:
-                    p_list_for_roulette = _roulette_pairs_from_participants_dict(
-                        participants_dict, winners, allow_duplicates
-                    )
+                now_ts = time.time()
+                cached_entry = _EVENT_SYNC_CACHE.get(active_url)
+                if cached_entry and (now_ts - float(cached_entry.get("ts", 0))) < _EVENT_SYNC_TTL_SEC:
+                    active_event_data = copy.deepcopy(cached_entry.get("payload") or {})
                 else:
-                    # 저장 직후 participants 테이블이 비어도 allowed_list로 즉시 복원
-                    allowed_dict = get_allowed_list(active_url)
-                    if allowed_dict:
-                        restored = _roulette_list_from_allowed_dict(allowed_dict, winners, allow_duplicates)
-                        p_list_for_roulette = [(name, int(count)) for name, count, _ in restored]
-                        p_list_for_roulette.sort(key=lambda x: _ko_first_name_key(x[0]))
-
-                p_names = [name for name, _ in p_list_for_roulette]
-                won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
-                # 중복 비허용이면 현재 참여자만 체크, 허용이면 기당첨자도 체크
-                confirmed_all = (
-                    list(set(p_names) | set(won_names))
-                    if (allow_duplicates != False) else list(set(p_names))
-                )
-
-                # 명단 UI는 항상 "전체 사전 명단"을 우선 사용(중복비허용 시 당첨자를 체크 해제로만 표현)
-                participant_display_list = []
-                allowed_dict_ui = get_allowed_list(active_url)
-                if allowed_dict_ui:
-                    for name, tickets in allowed_dict_ui.items():
-                        nm = unicodedata.normalize("NFC", str(name).strip())
-                        try:
-                            t = int(tickets)
-                        except (TypeError, ValueError):
-                            t = 1
-                        participant_display_list.append((nm, t))
-                    participant_display_list.sort(
-                        key=lambda x: _ko_first_name_key(x[0])
+                    participants_dict, last_id, all_commenter_list, title, prizes, memo, winners, allow_duplicates, _, _ = db.get_data(
+                        active_url, include_commenters=False
                     )
-                elif participants_dict:
-                    # 하위 호환: allowed_list 가 없을 때만 participants 로 표시
-                    for name, v in participants_dict.items():
-                        participant_display_list.append(
-                            (name, _normalize_ticket_count(v))
+                # Supabase 일시 오류로 빈 데이터가 내려오면 마지막 정상 스냅샷으로 폴백
+                    cached = event_states.get(active_url) if active_url else None
+                    if _is_effectively_empty_event_fetch(participants_dict, title, prizes, memo, winners, None) and cached:
+                        print(f"DEBUG: [game_status] using cached snapshot for {active_url}")
+                        participants_dict = dict(cached.get('participants') or {})
+                        title = cached.get('title', title)
+                        prizes = cached.get('prizes', prizes)
+                        memo = cached.get('memo', memo)
+                        winners = cached.get('winners', winners)
+                        allow_duplicates = cached.get('allow_duplicates', allow_duplicates)
+
+                    p_list_for_roulette = []
+                    if participants_dict:
+                        p_list_for_roulette = _roulette_pairs_from_participants_dict(
+                            participants_dict, winners, allow_duplicates
                         )
-                    participant_display_list.sort(
-                        key=lambda x: _ko_first_name_key(x[0])
+                    else:
+                        # 저장 직후 participants 테이블이 비어도 allowed_list로 즉시 복원
+                        allowed_dict = get_allowed_list(active_url)
+                        if allowed_dict:
+                            restored = _roulette_list_from_allowed_dict(allowed_dict, winners, allow_duplicates)
+                            p_list_for_roulette = [(name, int(count)) for name, count, _ in restored]
+                            p_list_for_roulette.sort(key=lambda x: _ko_first_name_key(x[0]))
+
+                    p_names = [name for name, _ in p_list_for_roulette]
+                    won_names = [w.strip() for w in winners.split(',') if w.strip()] if winners else []
+                    # 중복 비허용이면 현재 참여자만 체크, 허용이면 기당첨자도 체크
+                    confirmed_all = (
+                        list(set(p_names) | set(won_names))
+                        if (allow_duplicates != False) else list(set(p_names))
                     )
-                
-                active_event_data = {
-                    'title': title,
-                    'prizes': prizes,
-                    'memo': memo,
-                    'winners': winners,
-                    'allow_duplicates': bool(allow_duplicates) if allow_duplicates is not None else False,
-                    'participants': p_list_for_roulette,
-                    'participant_display_list': participant_display_list,
-                    'confirmed_all': confirmed_all,
-                    'current_url': active_url,
-                    'current_event_id': active_url,
-                    'roulette_closed_message': roulette_event_closed.get(active_url),
-                }
-                # 다음 요청에서 폴백할 수 있도록 마지막 정상 스냅샷 갱신
-                st = event_states.setdefault(active_url, {})
-                st['title'] = title or ''
-                st['prizes'] = prizes or ''
-                st['memo'] = memo or ''
-                st['winners'] = winners or ''
-                st['allow_duplicates'] = bool(allow_duplicates)
-                st['participants'] = dict(participants_dict or {})
+
+                    # 명단 UI는 항상 "전체 사전 명단"을 우선 사용(중복비허용 시 당첨자를 체크 해제로만 표현)
+                    participant_display_list = []
+                    allowed_dict_ui = get_allowed_list(active_url)
+                    if allowed_dict_ui:
+                        for name, tickets in allowed_dict_ui.items():
+                            nm = unicodedata.normalize("NFC", str(name).strip())
+                            try:
+                                t = int(tickets)
+                            except (TypeError, ValueError):
+                                t = 1
+                            participant_display_list.append((nm, t))
+                        participant_display_list.sort(
+                            key=lambda x: _ko_first_name_key(x[0])
+                        )
+                    elif participants_dict:
+                        # 하위 호환: allowed_list 가 없을 때만 participants 로 표시
+                        for name, v in participants_dict.items():
+                            participant_display_list.append(
+                                (name, _normalize_ticket_count(v))
+                            )
+                        participant_display_list.sort(
+                            key=lambda x: _ko_first_name_key(x[0])
+                        )
+
+                    active_event_data = {
+                        'title': title,
+                        'prizes': prizes,
+                        'memo': memo,
+                        'winners': winners,
+                        'allow_duplicates': bool(allow_duplicates) if allow_duplicates is not None else False,
+                        'participants': p_list_for_roulette,
+                        'participant_display_list': participant_display_list,
+                        'confirmed_all': confirmed_all,
+                        'current_url': active_url,
+                        'current_event_id': active_url,
+                        'roulette_closed_message': roulette_event_closed.get(active_url),
+                    }
+                    _EVENT_SYNC_CACHE[active_url] = {"ts": now_ts, "payload": copy.deepcopy(active_event_data)}
+
+                    # 다음 요청에서 폴백할 수 있도록 마지막 정상 스냅샷 갱신
+                    st = event_states.setdefault(active_url, {})
+                    st['title'] = title or ''
+                    st['prizes'] = prizes or ''
+                    st['memo'] = memo or ''
+                    st['winners'] = winners or ''
+                    st['allow_duplicates'] = bool(allow_duplicates)
+                    st['participants'] = dict(participants_dict or {})
         except Exception as e:
             print(f"DEBUG: Error fetching initial sync data: {e}")
 

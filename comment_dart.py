@@ -230,6 +230,7 @@ CORS(app)
 
 # [수정됨] SocketIO 객체 수정: async_mode를 'threading'으로 변경 (빌드 에러 방지)
 socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*")
+app.config["SOCKETIO"] = socketio
 
 # ----- 로그인 매니저 설정 -----
 login_manager = LoginManager()

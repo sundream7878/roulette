@@ -19,6 +19,27 @@ operator_bp = Blueprint("operator", __name__, url_prefix="/api/operator")
 def _db():
     return current_app.config["ROULETTE_DB"]
 
+def _socketio():
+    return current_app.config.get("SOCKETIO")
+
+
+def _broadcast_active_event_changed(event_key: Optional[str]):
+    """활성 이벤트 변경을 모든 클라이언트에 즉시 알린다."""
+    if not event_key:
+        return
+    sio = _socketio()
+    if not sio:
+        return
+    ek = str(event_key)
+    try:
+        sio.emit(
+            "update_event_settings",
+            {"event_id": ek, "url": ek},
+            namespace="/",
+        )
+    except Exception as e:
+        print(f"DEBUG: [operator broadcast] failed: {e}")
+
 
 def _operator_storage_error_response(detail: Optional[str]):
     """Supabase 저장 실패 시 사용자용 문구 + 기술 힌트(detail)."""
@@ -120,6 +141,7 @@ def api_save():
         new_key, err_detail = _register_new_from_operator_form(data, keep_title=True)
         if err_detail:
             return _operator_storage_error_response(err_detail)
+        _broadcast_active_event_changed(new_key)
         return jsonify({"ok": True, "event_key": new_key, "created": True})
     key = normalize_event_id(key.strip())
 
@@ -162,6 +184,7 @@ def api_save():
         ok_act, err_act = _db().set_active_event_id_blocking(key)
         if not ok_act:
             return _operator_storage_error_response(err_act)
+        _broadcast_active_event_changed(key)
     return jsonify({"ok": True, "event_key": key, "created": False})
 
 
@@ -240,6 +263,7 @@ def api_reset_winners():
     ok_act, err_act = _db().set_active_event_id_blocking(new_key)
     if not ok_act:
         return _operator_storage_error_response(err_act)
+    _broadcast_active_event_changed(new_key)
 
     return jsonify(
         {
@@ -285,6 +309,7 @@ def api_delete():
                 ok_act, err_act = _db().set_active_event_id_blocking(next_active_key)
                 if not ok_act:
                     return _operator_storage_error_response(err_act)
+                _broadcast_active_event_changed(next_active_key)
 
     return jsonify(
         {
@@ -307,6 +332,7 @@ def api_select():
     ok, err_detail = _db().set_active_event_id_blocking(key)
     if not ok:
         return _operator_storage_error_response(err_detail)
+    _broadcast_active_event_changed(key)
     # 히스토리 전환 응답은 commenters 전체 조회가 필요 없어 빠른 경로 사용
     participants, _, _, title, prizes, memo, winners, allow_duplicates, allowed_list, event_at = _db().get_data(
         key, include_commenters=False
@@ -336,6 +362,7 @@ def api_activate():
     ok, err_detail = _db().set_active_event_id_blocking(key)
     if not ok:
         return _operator_storage_error_response(err_detail)
+    _broadcast_active_event_changed(key)
     return jsonify({"ok": True, "event_key": key})
 
 

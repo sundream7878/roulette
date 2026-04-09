@@ -1424,6 +1424,19 @@
             var label = opIsNewKey(k) ? '이벤트 ID · (NEW) ' : '이벤트 ID · ';
             badge.textContent = label + opDisplayEventKey(k);
         }
+        function applyNewTitlePrefix(rawTitle) {
+            var s = String(rawTitle || '').trim();
+            if (!s) return '(NEW)';
+            if (s.indexOf('(NEW)') === 0) return s;
+            return '(NEW) ' + s;
+        }
+        function removeNewTitlePrefix(rawTitle) {
+            var s = String(rawTitle || '').trim();
+            if (s.indexOf('(NEW)') === 0) {
+                s = s.replace(/^\(NEW\)\s*/, '');
+            }
+            return s;
+        }
         function opApplySavedKey(d) {
             window._operatorDraftMode = false;
             window._opDraftEventMeta = null;
@@ -1435,8 +1448,9 @@
             window.rouletteActiveKey = key;
             opSetIdBadge(key);
             var tit = document.getElementById('op-title');
+            if (tit) tit.value = removeNewTitlePrefix(tit.value || '');
             var h1 = document.getElementById('event-title-display');
-            if (h1 && tit) h1.textContent = tit.value || h1.textContent;
+            if (h1 && tit) h1.textContent = removeNewTitlePrefix(tit.value || h1.textContent);
             opRefreshHistory({ skipEmptyStatus: true });
             opUpdateParticipantsTotalFromText(document.getElementById('op-allowed-list').value || '');
             opRenderWinnersPanel(document.getElementById('op-prizes').value || '', window._opCurrentWinners || '');
@@ -1456,7 +1470,7 @@
             opActiveKey = key;
             window.rouletteActiveKey = key;
             opSetIdBadge(key);
-            document.getElementById('op-title').value = d.title || '';
+            document.getElementById('op-title').value = removeNewTitlePrefix(d.title || '');
             var opPrizes = document.getElementById('op-prizes');
             var opMemo = document.getElementById('op-memo');
             var nextPrizes = (d.prizes === null || d.prizes === undefined) ? '' : String(d.prizes);
@@ -1474,7 +1488,7 @@
                 if (eat._flatpickr) eat._flatpickr.setDate(v, false, 'Y-m-d H:i');
             }
             var h1 = document.getElementById('event-title-display');
-            if (h1) h1.textContent = d.title || '';
+            if (h1) h1.textContent = removeNewTitlePrefix(d.title || '');
             window._opCurrentWinners = d.winners || '';
             opRenderWinnersPanel(d.prizes || '', d.winners || '');
             opRefreshHistory({ skipEmptyStatus: true });
@@ -1629,10 +1643,12 @@
             }
         }
         function opFormToBody() {
+            var rawTitle = (document.getElementById('op-title') || {}).value || '';
+            var cleanTitle = removeNewTitlePrefix(rawTitle);
             return {
                 event_key: (document.getElementById('op-event-key') || {}).value || '',
                 event_at: opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || ''),
-                title: document.getElementById('op-title').value,
+                title: cleanTitle,
                 prizes: document.getElementById('op-prizes').value,
                 memo: document.getElementById('op-memo').value,
                 allow_duplicates: document.getElementById('op-allow-dup').checked,
@@ -1720,7 +1736,8 @@
                         opSetIdBadge(key);
                         // 새 ID 준비 단계에서는 기존 폼 내용을 유지해 "복사본 작성" 흐름을 보장한다.
                         // (저장 전에도 제목/일시/명단/사은품이 일치하도록 즉시 반영)
-                        document.getElementById('op-title').value = snapshot.title || '';
+                        var draftPrefixedTitle = applyNewTitlePrefix(snapshot.title || '');
+                        document.getElementById('op-title').value = draftPrefixedTitle;
                         document.getElementById('op-prizes').value = snapshot.prizes || '';
                         document.getElementById('op-memo').value = snapshot.memo || '';
                         document.getElementById('op-allow-dup').checked = !!snapshot.allow_duplicates;
@@ -1744,7 +1761,7 @@
                             if (eat._flatpickr) eat._flatpickr.setDate(v, false, 'Y-m-d H:i');
                         }
                         var h1 = document.getElementById('event-title-display');
-                        if (h1) h1.textContent = snapshot.title || '';
+                        if (h1) h1.textContent = draftPrefixedTitle;
                         window._operatorDraftMode = true;
                         var draftEventAt = d.event_at || snapshot.event_at || '';
                         window._opDraftEventMeta = { key: key, event_at: draftEventAt };

@@ -1676,16 +1676,15 @@
                 .catch(function (e) { opSetStatus('오류: ' + e, true); });
         };
         window.opRegisterNew = function () {
-            opSetStatus('새 이벤트 복사/저장 중...');
-            opShowToast('새 ID 발급 후 복사본을 즉시 저장합니다...', 2400);
-            // 복사+저장 직전 짧은 구간에서는 실시간 동기화를 잠시 보류한다.
+            opSetStatus('새 이벤트 생성 중...');
+            opShowToast('빈 이벤트를 새 ID로 즉시 생성합니다...', 2200);
+            // 생성+저장 직전 짧은 구간에서는 실시간 동기화를 잠시 보류한다.
             window._operatorDraftMode = true;
             var reqSeq = Number(window._opRegisterNewReqSeq || 0) + 1;
             window._opRegisterNewReqSeq = reqSeq;
-            var snapshot = opFormToBody();
-            var prefixedTitle = applyNewTitlePrefix(snapshot.title || '');
+            var requestedEventAt = opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || '');
             var body = {
-                event_at: snapshot.event_at || opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || '')
+                event_at: requestedEventAt
             };
             var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
             var tm = setTimeout(function () {
@@ -1729,12 +1728,12 @@
                         opSetIdBadge(key);
                         var saveBody = {
                             event_key: key,
-                            event_at: opEventAtToApiValue(d.event_at || snapshot.event_at || ''),
-                            title: prefixedTitle,
-                            prizes: snapshot.prizes || '',
-                            memo: snapshot.memo || '',
-                            allow_duplicates: !!snapshot.allow_duplicates,
-                            allowed_list_text: snapshot.allowed_list_text || '',
+                            event_at: opEventAtToApiValue(d.event_at || requestedEventAt || ''),
+                            title: '(NEW)',
+                            prizes: '',
+                            memo: '',
+                            allow_duplicates: false,
+                            allowed_list_text: '',
                             force_new_title_prefix: true
                         };
                         return fetch('/api/operator/save', {
@@ -1794,8 +1793,8 @@
                                 opRenderWinnersPanel(saveBody.prizes, '');
                                 opUpdateParticipantsTotalFromText(saveBody.allowed_list_text);
                                 opRefreshHistory({ skipEmptyStatus: true });
-                                opSetStatus('복사본을 (NEW) 제목으로 즉시 저장했습니다.', false);
-                                opShowToast('새 이벤트 복사+저장 완료', 1800);
+                                opSetStatus('새 이벤트를 빈 내용으로 생성했습니다. 제목은 (NEW)로 저장되었습니다.', false);
+                                opShowToast('새 이벤트 생성 완료', 1600);
                             });
                         });
                     });
@@ -1805,7 +1804,7 @@
                     window._operatorDraftMode = false;
                     clearTimeout(tm);
                     opSetStatus('오류: ' + e, true);
-                    opShowToast('새 이벤트 복사/저장 중 오류가 발생했습니다. 다시 시도해 주세요.', 2600);
+                    opShowToast('새 이벤트 생성 중 오류가 발생했습니다. 다시 시도해 주세요.', 2600);
                 });
         };
         window.opResetWinnersFromHistory = function () {

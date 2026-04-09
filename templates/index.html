@@ -1734,7 +1734,8 @@
                             prizes: snapshot.prizes || '',
                             memo: snapshot.memo || '',
                             allow_duplicates: !!snapshot.allow_duplicates,
-                            allowed_list_text: snapshot.allowed_list_text || ''
+                            allowed_list_text: snapshot.allowed_list_text || '',
+                            force_new_title_prefix: true
                         };
                         return fetch('/api/operator/save', {
                             method: 'POST',
@@ -1763,10 +1764,11 @@
                                     console.log('[operator] stale auto-save response ignored by requested key:', key, '->', responseKey);
                                     return;
                                 }
+                                var persistedTitle = String((d2 && d2.title) || saveBody.title || '');
                                 window._operatorDraftMode = false;
                                 window._opDraftEventMeta = null;
                                 window._opCurrentWinners = '';
-                                document.getElementById('op-title').value = saveBody.title;
+                                document.getElementById('op-title').value = persistedTitle;
                                 document.getElementById('op-prizes').value = saveBody.prizes;
                                 document.getElementById('op-memo').value = saveBody.memo;
                                 document.getElementById('op-allow-dup').checked = !!saveBody.allow_duplicates;
@@ -1778,11 +1780,11 @@
                                     if (eat._flatpickr) eat._flatpickr.setDate(vv, false, 'Y-m-d H:i');
                                 }
                                 var h1 = document.getElementById('event-title-display');
-                                if (h1) h1.textContent = saveBody.title;
+                                if (h1) h1.textContent = persistedTitle;
                                 opApplySavedKey({ event_key: key });
                                 opApplySelectedEventToLivePanels({
                                     event_key: key,
-                                    title: saveBody.title,
+                                    title: persistedTitle,
                                     prizes: saveBody.prizes,
                                     memo: saveBody.memo,
                                     winners: '',

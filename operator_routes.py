@@ -76,6 +76,15 @@ def _operator_storage_error_response(detail: Optional[str]):
     return jsonify(payload), 503
 
 
+def _ensure_new_title_prefix(title: str) -> str:
+    s = str(title or "").strip()
+    if not s:
+        return "(NEW)"
+    if s.startswith("(NEW)"):
+        return s
+    return f"(NEW) {s}"
+
+
 def _register_new_from_operator_form(
     data: dict, keep_title: bool = True
 ) -> Tuple[Optional[str], Optional[str]]:
@@ -157,6 +166,8 @@ def api_save():
     last_id = last_id or ""
 
     title = data["title"] if "title" in data else t0
+    if bool(data.get("force_new_title_prefix", False)):
+        title = _ensure_new_title_prefix(title)
     prizes = data["prizes"] if "prizes" in data else pr
     memo = data["memo"] if "memo" in data else m0
     winners = data["winners"] if "winners" in data else (w0 or "")
@@ -193,7 +204,7 @@ def api_save():
         if not ok_act:
             return _operator_storage_error_response(err_act)
         _broadcast_active_event_changed(key)
-    return jsonify({"ok": True, "event_key": key, "created": False})
+    return jsonify({"ok": True, "event_key": key, "created": False, "title": title or ""})
 
 
 @operator_bp.post("/new")

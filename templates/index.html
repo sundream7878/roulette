@@ -1182,11 +1182,9 @@
     (function () {
         var opActiveKey = {{ (current_url or '')|tojson }};
         window.rouletteActiveKey = (typeof opActiveKey === 'string') ? opActiveKey : '';
-        window._opRecentResetKeys = window._opRecentResetKeys || {};
         window._opDraftEventMeta = window._opDraftEventMeta || null;
-        window._opStickyNewKey = window._opStickyNewKey || '';
+        window._opRegisterNewReqSeq = window._opRegisterNewReqSeq || 0;
         window._opForceHistoryTopOnce = window._opForceHistoryTopOnce || false;
-        var OP_NEW_BADGE_TTL_MS = 30 * 60 * 1000;
         /** true: 「새 이벤트로 등록」 직후~저장 전. RT/소켓 자동 새로고침이 폼을 덮어쓰지 않도록 함 */
         window._operatorDraftMode = false;
 
@@ -1325,41 +1323,10 @@
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
                     if (d && !d.error) {
-                        opApplySelectPayload(d);
+                        opApplySelectPayload(d, { expectedEventKey: key });
                         if (afterMessage) opSetStatus(afterMessage, false);
                     }
                 });
-        }
-        function opMarkNewEventKey(key) {
-            var k = String(key || '').trim();
-            if (!k) return;
-            window._opRecentResetKeys[k] = Date.now();
-        }
-        function opClearNewBadgeKey(key) {
-            var k = String(key || '').trim();
-            if (!k) return;
-            var map = window._opRecentResetKeys || {};
-            if (Object.prototype.hasOwnProperty.call(map, k)) {
-                delete map[k];
-            }
-        }
-        function opHasNewBadge(key) {
-            var now = Date.now();
-            var map = window._opRecentResetKeys || {};
-            Object.keys(map).forEach(function (k) {
-                if (now - Number(map[k] || 0) > OP_NEW_BADGE_TTL_MS) delete map[k];
-            });
-            var v = map[String(key || '').trim()];
-            return !!v && (now - Number(v) <= OP_NEW_BADGE_TTL_MS);
-        }
-        function opIsNewKey(key) {
-            var k = String(key || '').trim();
-            if (!k) return false;
-            if (String(window._opStickyNewKey || '').trim() === k) return true;
-            if (opHasNewBadge(k)) return true;
-            var draft = window._opDraftEventMeta || null;
-            if (draft && String(draft.key || '').trim() === k) return true;
-            return false;
         }
         function opFormatApiError(d, fallback) {
             if (!d) return fallback || '';
@@ -1421,21 +1388,13 @@
                 badge.textContent = '이벤트 ID · —';
                 return;
             }
-            var label = opIsNewKey(k) ? '이벤트 ID · (NEW) ' : '이벤트 ID · ';
-            badge.textContent = label + opDisplayEventKey(k);
+            badge.textContent = '이벤트 ID · ' + opDisplayEventKey(k);
         }
         function applyNewTitlePrefix(rawTitle) {
             var s = String(rawTitle || '').trim();
             if (!s) return '(NEW)';
             if (s.indexOf('(NEW)') === 0) return s;
             return '(NEW) ' + s;
-        }
-        function removeNewTitlePrefix(rawTitle) {
-            var s = String(rawTitle || '').trim();
-            if (s.indexOf('(NEW)') === 0) {
-                s = s.replace(/^\(NEW\)\s*/, '');
-            }
-            return s;
         }
         function opApplySavedKey(d) {
             window._operatorDraftMode = false;
@@ -1448,15 +1407,29 @@
             window.rouletteActiveKey = key;
             opSetIdBadge(key);
             var tit = document.getElementById('op-title');
-            if (tit) tit.value = removeNewTitlePrefix(tit.value || '');
+            if (tit) tit.value = String(tit.value || '');
             var h1 = document.getElementById('event-title-display');
-            if (h1 && tit) h1.textContent = removeNewTitlePrefix(tit.value || h1.textContent);
+            if (h1 && tit) h1.textContent = String(tit.value || h1.textContent || '');
             opRefreshHistory({ skipEmptyStatus: true });
             opUpdateParticipantsTotalFromText(document.getElementById('op-allowed-list').value || '');
             opRenderWinnersPanel(document.getElementById('op-prizes').value || '', window._opCurrentWinners || '');
         }
         function opApplySelectPayload(d, opts) {
             opts = opts || {};
+            var payloadKey = String(((d && d.event_key) || '')).trim();
+            var expectedKey = String((opts.expectedEventKey || '')).trim();
+            if (expectedKey) {
+                if (!payloadKey || payloadKey !== expectedKey) {
+                    console.log('[operator] stale select payload ignored by expected key:', expectedKey, '->', payloadKey || '(empty)');
+                    return;
+                }
+            } else {
+                var currentKeyNow = String(((document.getElementById('op-event-key') || {}).value || opActiveKey || '')).trim();
+                if (payloadKey && currentKeyNow && payloadKey !== currentKeyNow) {
+                    console.log('[operator] stale select payload ignored by current key:', currentKeyNow, '->', payloadKey);
+                    return;
+                }
+            }
             if (window._operatorDraftMode && !opts.forceExitDraft) {
                 console.log('[operator] draft 모드 유지: 비의도 select payload 적용 생략');
                 return;
@@ -1464,13 +1437,13 @@
             window._operatorDraftMode = false;
             window._opDraftEventMeta = null;
             window._holdWinnerChecksUntilNextStart = false;
-            var key = d.event_key || '';
+            var key = payloadKey;
             var hid = document.getElementById('op-event-key');
             if (hid) hid.value = key;
             opActiveKey = key;
             window.rouletteActiveKey = key;
             opSetIdBadge(key);
-            document.getElementById('op-title').value = removeNewTitlePrefix(d.title || '');
+            document.getElementById('op-title').value = String(d.title || '');
             var opPrizes = document.getElementById('op-prizes');
             var opMemo = document.getElementById('op-memo');
             var nextPrizes = (d.prizes === null || d.prizes === undefined) ? '' : String(d.prizes);
@@ -1488,7 +1461,7 @@
                 if (eat._flatpickr) eat._flatpickr.setDate(v, false, 'Y-m-d H:i');
             }
             var h1 = document.getElementById('event-title-display');
-            if (h1) h1.textContent = removeNewTitlePrefix(d.title || '');
+            if (h1) h1.textContent = String(d.title || '');
             window._opCurrentWinners = d.winners || '';
             opRenderWinnersPanel(d.prizes || '', d.winners || '');
             opRefreshHistory({ skipEmptyStatus: true });
@@ -1644,11 +1617,10 @@
         }
         function opFormToBody() {
             var rawTitle = (document.getElementById('op-title') || {}).value || '';
-            var cleanTitle = removeNewTitlePrefix(rawTitle);
             return {
                 event_key: (document.getElementById('op-event-key') || {}).value || '',
                 event_at: opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || ''),
-                title: cleanTitle,
+                title: String(rawTitle || ''),
                 prizes: document.getElementById('op-prizes').value,
                 memo: document.getElementById('op-memo').value,
                 allow_duplicates: document.getElementById('op-allow-dup').checked,
@@ -1686,11 +1658,9 @@
                             console.log('[operator] stale save response ignored:', requestedKey, '->', responseKey, '(current:', currentKeyNow + ')');
                             return;
                         }
-                        // 사용자가 직접 저장을 누른 시점부터는 NEW 배지를 제거한다.
-                        var savedKey = responseKey;
-                        if (savedKey) opClearNewBadgeKey(savedKey);
-                        if (savedKey && String(window._opStickyNewKey || '').trim() === savedKey) {
-                            window._opStickyNewKey = '';
+                        if (requestedKey && responseKey && requestedKey !== responseKey) {
+                            console.log('[operator] stale save response ignored by requested key:', requestedKey, '->', responseKey);
+                            return;
                         }
                         opApplySavedKey(d);
                         // 저장 응답 소켓이 늦어도, 입력한 값을 즉시 라이브 패널에 반영한다.
@@ -1706,12 +1676,14 @@
                 .catch(function (e) { opSetStatus('오류: ' + e, true); });
         };
         window.opRegisterNew = function () {
-            opSetStatus('새 이벤트 준비 중...');
-            opShowToast('새 이벤트 ID를 준비하는 중입니다...', 2200);
-            // 새 ID 준비 요청 중에는 외부 실시간 동기화가 폼을 덮어쓰지 않게 선제적으로 draft 잠금
+            opSetStatus('새 이벤트 복사/저장 중...');
+            opShowToast('새 ID 발급 후 복사본을 즉시 저장합니다...', 2400);
+            // 복사+저장 직전 짧은 구간에서는 실시간 동기화를 잠시 보류한다.
             window._operatorDraftMode = true;
+            var reqSeq = Number(window._opRegisterNewReqSeq || 0) + 1;
+            window._opRegisterNewReqSeq = reqSeq;
             var snapshot = opFormToBody();
-            snapshot.winners = window._opCurrentWinners || '';
+            var prefixedTitle = applyNewTitlePrefix(snapshot.title || '');
             var body = {
                 event_at: snapshot.event_at || opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || '')
             };
@@ -1729,62 +1701,109 @@
                 .then(function (r) {
                     return r.json().then(function (d) {
                         clearTimeout(tm);
+                        if (reqSeq !== Number(window._opRegisterNewReqSeq || 0)) {
+                            console.log('[operator] stale register_new response ignored:', reqSeq, '!=', window._opRegisterNewReqSeq);
+                            return;
+                        }
                         if (!r.ok) {
+                            window._operatorDraftMode = false;
                             opSetStatus(opFormatApiError(d, '등록 실패 (' + r.status + ')'), true);
                             return;
                         }
-                        if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
+                        if (d.error) {
+                            window._operatorDraftMode = false;
+                            opSetStatus(opFormatApiError(d), true);
+                            return;
+                        }
                         var key = d.event_key || '';
+                        if (!key) {
+                            window._operatorDraftMode = false;
+                            opSetStatus('등록 실패: 새 이벤트 키가 비어 있습니다.', true);
+                            return;
+                        }
                         var hid = document.getElementById('op-event-key');
                         if (hid) hid.value = key;
                         opActiveKey = key;
                         window.rouletteActiveKey = key;
-                        window._opStickyNewKey = key;
                         window._holdWinnerChecksUntilNextStart = false;
-                        opMarkNewEventKey(key);
                         opSetIdBadge(key);
-                        // 새 ID 준비 단계에서는 기존 폼 내용을 유지해 "복사본 작성" 흐름을 보장한다.
-                        // (저장 전에도 제목/일시/명단/사은품이 일치하도록 즉시 반영)
-                        var draftPrefixedTitle = applyNewTitlePrefix(snapshot.title || '');
-                        document.getElementById('op-title').value = draftPrefixedTitle;
-                        document.getElementById('op-prizes').value = snapshot.prizes || '';
-                        document.getElementById('op-memo').value = snapshot.memo || '';
-                        document.getElementById('op-allow-dup').checked = !!snapshot.allow_duplicates;
-                        document.getElementById('op-allowed-list').value = snapshot.allowed_list_text || '';
-                        window._opCurrentWinners = '';
-                        opApplySelectedEventToLivePanels({
+                        var saveBody = {
                             event_key: key,
-                            title: snapshot.title || '',
+                            event_at: opEventAtToApiValue(d.event_at || snapshot.event_at || ''),
+                            title: prefixedTitle,
                             prizes: snapshot.prizes || '',
                             memo: snapshot.memo || '',
-                            winners: '',
                             allow_duplicates: !!snapshot.allow_duplicates,
                             allowed_list_text: snapshot.allowed_list_text || ''
+                        };
+                        return fetch('/api/operator/save', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify(saveBody)
+                        }).then(function (r2) {
+                            return r2.json().then(function (d2) {
+                                if (!r2.ok) {
+                                    window._operatorDraftMode = false;
+                                    opSetStatus(opFormatApiError(d2, '자동 저장 실패 (' + r2.status + ')'), true);
+                                    return;
+                                }
+                                if (d2.error) {
+                                    window._operatorDraftMode = false;
+                                    opSetStatus(opFormatApiError(d2), true);
+                                    return;
+                                }
+                                var responseKey = String((d2 && d2.event_key) || '').trim();
+                                var currentKeyNow = String(((document.getElementById('op-event-key') || {}).value || opActiveKey || '')).trim();
+                                if (responseKey && currentKeyNow && responseKey !== currentKeyNow) {
+                                    console.log('[operator] stale auto-save response ignored:', key, '->', responseKey, '(current:', currentKeyNow + ')');
+                                    return;
+                                }
+                                if (responseKey && responseKey !== key) {
+                                    console.log('[operator] stale auto-save response ignored by requested key:', key, '->', responseKey);
+                                    return;
+                                }
+                                window._operatorDraftMode = false;
+                                window._opDraftEventMeta = null;
+                                window._opCurrentWinners = '';
+                                document.getElementById('op-title').value = saveBody.title;
+                                document.getElementById('op-prizes').value = saveBody.prizes;
+                                document.getElementById('op-memo').value = saveBody.memo;
+                                document.getElementById('op-allow-dup').checked = !!saveBody.allow_duplicates;
+                                document.getElementById('op-allowed-list').value = saveBody.allowed_list_text;
+                                var eat = document.getElementById('op-event-at');
+                                if (eat) {
+                                    var vv = opEventAtToInputValue(d2.event_at || saveBody.event_at || '');
+                                    eat.value = vv;
+                                    if (eat._flatpickr) eat._flatpickr.setDate(vv, false, 'Y-m-d H:i');
+                                }
+                                var h1 = document.getElementById('event-title-display');
+                                if (h1) h1.textContent = saveBody.title;
+                                opApplySavedKey({ event_key: key });
+                                opApplySelectedEventToLivePanels({
+                                    event_key: key,
+                                    title: saveBody.title,
+                                    prizes: saveBody.prizes,
+                                    memo: saveBody.memo,
+                                    winners: '',
+                                    allow_duplicates: !!saveBody.allow_duplicates,
+                                    allowed_list_text: saveBody.allowed_list_text
+                                });
+                                opRenderWinnersPanel(saveBody.prizes, '');
+                                opUpdateParticipantsTotalFromText(saveBody.allowed_list_text);
+                                opRefreshHistory({ skipEmptyStatus: true });
+                                opSetStatus('복사본을 (NEW) 제목으로 즉시 저장했습니다.', false);
+                                opShowToast('새 이벤트 복사+저장 완료', 1800);
+                            });
                         });
-                        opRenderWinnersPanel(snapshot.prizes || '', '');
-                        opUpdateParticipantsTotalFromText(snapshot.allowed_list_text || '');
-                        var eat = document.getElementById('op-event-at');
-                        if (eat) {
-                            var v = opEventAtToInputValue(d.event_at || snapshot.event_at || '');
-                            eat.value = v;
-                            if (eat._flatpickr) eat._flatpickr.setDate(v, false, 'Y-m-d H:i');
-                        }
-                        var h1 = document.getElementById('event-title-display');
-                        if (h1) h1.textContent = draftPrefixedTitle;
-                        window._operatorDraftMode = true;
-                        var draftEventAt = d.event_at || snapshot.event_at || '';
-                        window._opDraftEventMeta = { key: key, event_at: draftEventAt };
-                        opInjectDraftHistoryOption(key, draftEventAt);
-                        // "새 이벤트로 등록"은 DB에 저장하지 않는 임시 준비 단계라
-                        // 히스토리 재조회가 필요 없다. (리스트 깜빡임/지연 방지)
-                        opSetStatus('새 이벤트 작성 준비 완료. 내용을 입력한 뒤 저장하세요.', false);
                     });
                 })
                 .catch(function (e) {
+                    if (reqSeq !== Number(window._opRegisterNewReqSeq || 0)) return;
                     window._operatorDraftMode = false;
                     clearTimeout(tm);
                     opSetStatus('오류: ' + e, true);
-                    opShowToast('새 이벤트 등록 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.', 2600);
+                    opShowToast('새 이벤트 복사/저장 중 오류가 발생했습니다. 다시 시도해 주세요.', 2600);
                 });
         };
         window.opResetWinnersFromHistory = function () {
@@ -1809,13 +1828,14 @@
                         }
                         if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
                         var newKey = d.event_key ? String(d.event_key).trim() : '';
-                        if (newKey) opMarkNewEventKey(newKey);
                         var finalizeReset = function (payload) {
                             // 초기화 직후에는 패널을 먼저 비워 "리셋됨" 상태를 즉시 보여준다.
                             window._opCurrentWinners = '';
                             var pz = document.getElementById('op-prizes');
                             opRenderWinnersPanel((pz && pz.value) ? pz.value : '', '');
-                            opApplySelectPayload(payload || d);
+                            var finalPayload = payload || d;
+                            var expectedKey = String(((finalPayload && finalPayload.event_key) || newKey || selectedKey || '')).trim();
+                            opApplySelectPayload(finalPayload, { expectedEventKey: expectedKey });
                             opRefreshHistory({ skipEmptyStatus: true });
                             if (window.socket && window.socket.connected) {
                                 window.socket.emit('request_game_status');
@@ -2006,9 +2026,7 @@
             fetch('/api/operator/events?limit=50', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
                 var sel = document.getElementById('op-event-history');
                 if (!sel) return;
-                // 신규 작성 모드에서는 히스토리 선택/활성 표시를 숨겨
-                // '저장 전 임시 상태'임을 명확히 보여준다.
-                var isDraftMode = !!window._operatorDraftMode;
+                var isDraftMode = false;
                 if (!d.events || !d.events.length) {
                     // 조회 실패/일시 공백 시 기존 히스토리 목록은 유지
                     if (!opts.skipEmptyStatus && !sel.options.length) {
@@ -2038,7 +2056,6 @@
                     opt.value = evKey;
                     var id = (evKey || '').slice(0, 32);
                     var t = (ev.title || '(제목 없음)').slice(0, 40);
-                    if (opIsNewKey(evKey)) t = '(NEW) ' + t;
                     var dtSrc = ev.event_at || ev.updated_at || '';
                     var dt = String(dtSrc).replace('T', ' ').slice(0, 16);
                     opt.textContent = id + ' · ' + t + ' · ' + dt + ((!isDraftMode && ev.is_active) ? ' ★' : '');
@@ -2048,13 +2065,6 @@
                     }
                     sel.appendChild(opt);
                 });
-                if (isDraftMode) {
-                    if (window._opDraftEventMeta && window._opDraftEventMeta.key) {
-                        opInjectDraftHistoryOption(window._opDraftEventMeta.key, window._opDraftEventMeta.event_at || '');
-                    }
-                    sel.selectedIndex = -1;
-                    return;
-                }
                 if (window._opForceHistoryTopOnce && sel.options.length) {
                     sel.selectedIndex = 0;
                     sel.scrollTop = 0;
@@ -2076,7 +2086,7 @@
                             .then(function (r3) { return r3.json(); })
                             .then(function (d3) {
                                 if (d3 && !d3.error) {
-                                    opApplySelectPayload(d3, { forceExitDraft: true });
+                                    opApplySelectPayload(d3, { forceExitDraft: true, expectedEventKey: topKey });
                                     // 후속 opRefreshHistory(기본 호출)에서 1회 더 상단 고정 후 플래그 해제
                                     opSetStatus('선택 이벤트를 삭제했고, 히스토리 최상단 이벤트로 전환했습니다.', false);
                                 } else {
@@ -2109,6 +2119,7 @@
                 window._rouletteSwitchTargetKey = v;
                 window._rouletteSwitchStartedAt = Date.now();
                 window._rouletteSwitchExpectedParticipants = 0;
+                window._opRegisterNewReqSeq = Number(window._opRegisterNewReqSeq || 0) + 1;
                 if (typeof window.suspendAutoReload === 'function') window.suspendAutoReload(10000);
                 if (typeof window.showRouletteLoading === 'function') {
                     window.showRouletteLoading(
@@ -2126,7 +2137,7 @@
                         var expectedFromAllowed = opParseAllowedListCount(d.allowed_list_text || '');
                         var expectedFromParticipants = parseInt(d.participant_count || 0, 10);
                         window._rouletteSwitchExpectedParticipants = Math.max(expectedFromAllowed, expectedFromParticipants);
-                        opApplySelectPayload(d, { forceExitDraft: true });
+                        opApplySelectPayload(d, { forceExitDraft: true, expectedEventKey: v });
                         // 체감 속도 개선: /select 응답 도착 시 바로 화면 반영 완료로 간주하고 로딩 종료
                         window._rouletteAwaitingGameStatus = false;
                         window._rouletteSwitchTargetKey = '';

@@ -2250,6 +2250,20 @@
             }
         })();
 
+        function applyEndedTitlePrefix(rawTitle) {
+            var s = String(rawTitle || '').trim();
+            if (!s) return '(종료)';
+            if (s.indexOf('(종료)') === 0) return s;
+            return '(종료) ' + s;
+        }
+        function removeEndedTitlePrefix(rawTitle) {
+            var s = String(rawTitle || '').trim();
+            if (s.indexOf('(종료)') === 0) {
+                s = s.replace(/^\(종료\)\s*/, '');
+            }
+            return s;
+        }
+
         function applyRouletteEventEnded(message) {
             var msg = (message && String(message).trim()) ? String(message).trim() : '오늘 룰렛 이벤트 종료! 감사합니다';
             window._rouletteEventClosed = true;
@@ -2293,6 +2307,10 @@
                 clearInterval(countdownInterval);
                 countdownInterval = null;
             }
+            var titleEl = document.getElementById('event-title-display');
+            if (titleEl) {
+                titleEl.innerText = applyEndedTitlePrefix(titleEl.innerText || '');
+            }
             var rem = document.getElementById('remaining-time');
             if (rem) rem.innerText = '--:--:--';
             var grem = document.getElementById('guest-remaining-time');
@@ -2313,6 +2331,10 @@
             }
             var nameEl = document.getElementById('winner-name-v2');
             if (nameEl) nameEl.style.display = 'block';
+            var titleEl = document.getElementById('event-title-display');
+            if (titleEl) {
+                titleEl.innerText = removeEndedTitlePrefix(titleEl.innerText || '');
+            }
             var startBtn = document.getElementById('start-button');
             var ti = document.getElementById('target-time');
             if (startBtn && !gameIsActive) {
@@ -3362,7 +3384,11 @@
 
                     if (ed.title) {
                         const titleEl = document.getElementById('event-title-display');
-                        if (titleEl) titleEl.innerText = ed.title;
+                        if (titleEl) {
+                            titleEl.innerText = window._rouletteEventClosed
+                                ? applyEndedTitlePrefix(ed.title)
+                                : removeEndedTitlePrefix(ed.title);
+                        }
                     }
 
                     if (ed.prizes !== undefined || ed.winners !== undefined) {
@@ -3848,7 +3874,14 @@
                     return;
                 } else {
                     // 게임 중일 때는 DOM만 업데이트
-                    if (data.title) document.getElementById('event-title-display').innerText = data.title;
+                    if (data.title) {
+                        var titleEl2 = document.getElementById('event-title-display');
+                        if (titleEl2) {
+                            titleEl2.innerText = window._rouletteEventClosed
+                                ? applyEndedTitlePrefix(data.title)
+                                : removeEndedTitlePrefix(data.title);
+                        }
+                    }
                     if (data.memo !== undefined || data.allow_duplicates !== undefined) {
                         var memoTextEl = document.getElementById('memo-text');
                         var currMemo = memoTextEl ? String(memoTextEl.textContent || '').trim() : '';

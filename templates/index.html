@@ -2060,6 +2060,7 @@
                 }
             }).catch(function () { opSetStatus('이벤트 목록을 불러오지 못했습니다.', true); });
         }
+        window.opRefreshHistory = opRefreshHistory;
         function opBindHistorySelect() {
             var sel = document.getElementById('op-event-history');
             if (!sel) return;
@@ -2311,6 +2312,15 @@
             if (titleEl) {
                 titleEl.innerText = applyEndedTitlePrefix(titleEl.innerText || '');
             }
+            var opTitleEl = document.getElementById('op-title');
+            if (opTitleEl) {
+                var baseTitle = String(opTitleEl.value || '').trim();
+                if (!baseTitle && titleEl) baseTitle = String(titleEl.innerText || '').trim();
+                opTitleEl.value = applyEndedTitlePrefix(baseTitle);
+            }
+            if (typeof window.opRefreshHistory === 'function') {
+                try { window.opRefreshHistory({ skipEmptyStatus: true }); } catch (e) {}
+            }
             var rem = document.getElementById('remaining-time');
             if (rem) rem.innerText = '--:--:--';
             var grem = document.getElementById('guest-remaining-time');
@@ -2334,6 +2344,15 @@
             var titleEl = document.getElementById('event-title-display');
             if (titleEl) {
                 titleEl.innerText = removeEndedTitlePrefix(titleEl.innerText || '');
+            }
+            var opTitleEl = document.getElementById('op-title');
+            if (opTitleEl) {
+                var baseTitle2 = String(opTitleEl.value || '').trim();
+                if (!baseTitle2 && titleEl) baseTitle2 = String(titleEl.innerText || '').trim();
+                opTitleEl.value = removeEndedTitlePrefix(baseTitle2);
+            }
+            if (typeof window.opRefreshHistory === 'function') {
+                try { window.opRefreshHistory({ skipEmptyStatus: true }); } catch (e) {}
             }
             var startBtn = document.getElementById('start-button');
             var ti = document.getElementById('target-time');

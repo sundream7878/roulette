@@ -1425,6 +1425,7 @@
         function opApplySavedKey(d) {
             window._operatorDraftMode = false;
             window._opDraftEventMeta = null;
+            window._holdWinnerChecksUntilNextStart = false;
             var key = (d && d.event_key) ? d.event_key : '';
             var hid = document.getElementById('op-event-key');
             if (hid) hid.value = key;
@@ -1446,6 +1447,7 @@
             }
             window._operatorDraftMode = false;
             window._opDraftEventMeta = null;
+            window._holdWinnerChecksUntilNextStart = false;
             var key = d.event_key || '';
             var hid = document.getElementById('op-event-key');
             if (hid) hid.value = key;
@@ -1707,6 +1709,7 @@
                         if (hid) hid.value = key;
                         opActiveKey = key;
                         window.rouletteActiveKey = key;
+                        window._holdWinnerChecksUntilNextStart = false;
                         opMarkNewEventKey(key);
                         opSetIdBadge(key);
                         // 새 ID 준비 단계에서는 기존 폼 내용을 유지해 "복사본 작성" 흐름을 보장한다.

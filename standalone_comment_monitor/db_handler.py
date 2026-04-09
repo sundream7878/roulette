@@ -689,7 +689,10 @@ class CommentDatabase:
             return []
 
     def next_event_id(self, event_at_iso: Optional[str] = None) -> str:
-        prefix = event_at_to_date_prefix_ymd(event_at_iso)
+        # 운영 규칙: 이벤트 ID는 항상 "오늘 날짜(YYYYMMDD) + 2자리 일련번호"를 사용한다.
+        # event_at 값은 표시용으로만 쓰고, ID 날짜 접두에는 반영하지 않는다.
+        _ = event_at_iso
+        prefix = event_at_to_date_prefix_ymd(None)
         max_serial = 0
 
         def _bump(uid: str) -> None:

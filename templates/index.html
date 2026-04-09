@@ -1671,6 +1671,7 @@
         window.opSave = function () {
             opSetStatus('저장 중...');
             var body = opFormToBody();
+            var requestedKey = String(body.event_key || opActiveKey || '').trim();
             fetch('/api/operator/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) })
                 .then(function (r) {
                     return r.json().then(function (d) {
@@ -1679,8 +1680,14 @@
                             return;
                         }
                         if (d.error) { opSetStatus(opFormatApiError(d), true); return; }
+                        var responseKey = (d && d.event_key) ? String(d.event_key).trim() : '';
+                        var currentKeyNow = String(((document.getElementById('op-event-key') || {}).value || opActiveKey || '')).trim();
+                        if (responseKey && currentKeyNow && responseKey !== currentKeyNow) {
+                            console.log('[operator] stale save response ignored:', requestedKey, '->', responseKey, '(current:', currentKeyNow + ')');
+                            return;
+                        }
                         // 사용자가 직접 저장을 누른 시점부터는 NEW 배지를 제거한다.
-                        var savedKey = (d && d.event_key) ? String(d.event_key).trim() : '';
+                        var savedKey = responseKey;
                         if (savedKey) opClearNewBadgeKey(savedKey);
                         if (savedKey && String(window._opStickyNewKey || '').trim() === savedKey) {
                             window._opStickyNewKey = '';
@@ -1701,6 +1708,8 @@
         window.opRegisterNew = function () {
             opSetStatus('새 이벤트 준비 중...');
             opShowToast('새 이벤트 ID를 준비하는 중입니다...', 2200);
+            // 새 ID 준비 요청 중에는 외부 실시간 동기화가 폼을 덮어쓰지 않게 선제적으로 draft 잠금
+            window._operatorDraftMode = true;
             var snapshot = opFormToBody();
             snapshot.winners = window._opCurrentWinners || '';
             var body = {
@@ -1772,6 +1781,7 @@
                     });
                 })
                 .catch(function (e) {
+                    window._operatorDraftMode = false;
                     clearTimeout(tm);
                     opSetStatus('오류: ' + e, true);
                     opShowToast('새 이벤트 등록 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.', 2600);

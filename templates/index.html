@@ -2270,8 +2270,9 @@
         let gameIsActive = false; // 전역 선언 추가
         window._gameIsActive = false; // Supabase RT용 선언 초기화
         window._holdWinnerChecksUntilNextStart = false;
-        // 원판이 00:01에서 먼저 멈추는 체감 이슈 방지: 별도 단축 보정은 적용하지 않는다.
-        const ROULETTE_STOP_COMP_MS = 0;
+        // 체감 정렬 보정(+): 원판이 카운트다운보다 약간 먼저 멈추는 경우를 상쇄한다.
+        // 음수일수록 애니메이션 지속시간이 길어진다. (현재 약 +0.5초)
+        const ROULETTE_STOP_COMP_MS = -500;
         let memoPolicyAllowDuplicates = {% if allow_duplicates_dash %}true{% else %}false{% endif %};
         let startRequestInFlight = false;
         let startRequestTimeout = null;

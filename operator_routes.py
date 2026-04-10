@@ -49,6 +49,70 @@ def _broadcast_active_event_changed(event_key: Optional[str]):
         print(f"DEBUG: [operator broadcast] failed: {e}")
 
 
+def _normalize_participant_count(raw_value) -> int:
+    if isinstance(raw_value, (tuple, list)):
+        raw = raw_value[0] if raw_value else 0
+    else:
+        raw = raw_value
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _broadcast_event_snapshot(
+    event_key: Optional[str],
+    *,
+    title: str = "",
+    prizes: str = "",
+    memo: str = "",
+    winners: str = "",
+    participants: Optional[dict] = None,
+    allow_duplicates: Optional[bool] = None,
+):
+    """같은 이벤트 내 데이터 변경(예: 당첨자 리셋/삭제)을 즉시 UI에 반영."""
+    sio = _socketio()
+    if not sio or not event_key:
+        return
+    ek = str(event_key)
+    p_dict = dict(participants or {})
+    p_list = [(str(name), _normalize_participant_count(v)) for name, v in p_dict.items()]
+    p_list.sort(key=lambda row: row[0].casefold())
+    winner_list = [w.strip() for w in str(winners or "").split(",") if w and w.strip()]
+    if allow_duplicates is False:
+        confirmed_all = [name for name, _ in p_list]
+    else:
+        confirmed_all = sorted(
+            {name for name, _ in p_list}.union(set(winner_list)),
+            key=lambda s: str(s).casefold(),
+        )
+    try:
+        sio.emit(
+            "update_event_settings",
+            {
+                "event_id": ek,
+                "url": ek,
+                "title": title or "",
+                "prizes": prizes or "",
+                "memo": memo or "",
+                "winners": winners or "",
+                "allow_duplicates": bool(allow_duplicates),
+            },
+            namespace="/",
+        )
+        sio.emit(
+            "update_participants",
+            {
+                "event_id": ek,
+                "participants": p_list,
+                "confirmed_all": confirmed_all,
+            },
+            namespace="/",
+        )
+    except Exception as e:
+        print(f"DEBUG: [operator snapshot broadcast] failed: {e}")
+
+
 def _operator_storage_error_response(detail: Optional[str]):
     """Supabase 저장 실패 시 사용자용 문구 + 기술 힌트(detail)."""
     d = (detail or "").lower()
@@ -467,7 +531,15 @@ def api_winners_reset():
     if not ok:
         return _operator_storage_error_response(err_detail)
 
-    _broadcast_active_event_changed(key)
+    _broadcast_event_snapshot(
+        key,
+        title=title or "",
+        prizes=prizes or "",
+        memo=memo or "",
+        winners="",
+        participants=participants,
+        allow_duplicates=allow_duplicates,
+    )
     return jsonify({"ok": True, "event_key": key, "winners": ""})
 
 
@@ -526,5 +598,13 @@ def api_winners_delete():
     if not ok:
         return _operator_storage_error_response(err_detail)
 
-    _broadcast_active_event_changed(key)
+    _broadcast_event_snapshot(
+        key,
+        title=title or "",
+        prizes=prizes or "",
+        memo=memo or "",
+        winners=new_winners,
+        participants=participants,
+        allow_duplicates=allow_duplicates,
+    )
     return jsonify({"ok": True, "event_key": key, "winners": new_winners})

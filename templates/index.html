@@ -3600,7 +3600,9 @@
                         console.log("시간 차이(ms):", diffMs);
 
                         // 진행 중인 게임이고 회전 정보가 있는 경우
-                        if (data.is_running && data.finalAngle && diffMs > 0) {
+                        // 단, 이미 start_game으로 회전을 시작한 클라이언트는
+                        // game_status 재수신으로 원판 애니메이션을 덮어쓰지 않는다.
+                        if (data.is_running && data.finalAngle && diffMs > 0 && !gameIsActive) {
                             console.log("진행 중인 게임 감지: 원판 회전 시작");
 
                             // 원판 회전 시작

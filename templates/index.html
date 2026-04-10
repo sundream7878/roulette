@@ -1540,12 +1540,6 @@
             });
             return out;
         }
-        function opSplitText(text) {
-            return String(text || '')
-                .split(',')
-                .map(function (s) { return String(s || '').trim(); })
-                .filter(function (s) { return !!s; });
-        }
         function opRenderParticipantsListFromAllowed(allowedPairs, confirmedSet) {
             var allContainer = document.getElementById('all-participants-container');
             if (!allContainer) return;

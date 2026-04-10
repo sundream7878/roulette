@@ -61,7 +61,7 @@ def _should_skip_duplicate_confirm(event_id: str, winner: str, ttl_sec: int = 12
     return False
 
 
-def _is_already_processed_round(round_id: str, ttl_sec: int = 180) -> bool:
+def _is_already_processed_round(round_id: str, ttl_sec: int = 180, register_on_miss: bool = True) -> bool:
     if not round_id:
         return False
     now_ts = time.time()
@@ -70,7 +70,8 @@ def _is_already_processed_round(round_id: str, ttl_sec: int = 180) -> bool:
         _PROCESSED_ROUND_CONFIRM.pop(k, None)
     if round_id in _PROCESSED_ROUND_CONFIRM:
         return True
-    _PROCESSED_ROUND_CONFIRM[round_id] = now_ts
+    if register_on_miss:
+        _PROCESSED_ROUND_CONFIRM[round_id] = now_ts
     return False
 
 
@@ -912,6 +913,12 @@ def handle_confirm_winner(data=None):
     req_round_id = (data.get('round_id') or '').strip() if isinstance(data, dict) else ''
     emit_round_id = req_round_id
     user_id = current_user.id if current_user.is_authenticated else 'anonymous'
+
+    # 지연/중복 confirm 패킷은 에러 팝업 없이 무시한다.
+    # (이미 처리된 라운드가 늦게 도착하면 "당첨자 없음" 오탐이 발생할 수 있음)
+    if req_round_id and _is_already_processed_round(req_round_id, register_on_miss=False):
+        print(f"DEBUG: Late duplicate confirm ignored: {req_round_id}")
+        return
     
     # 먼저 user_id로 게임 정보 확인
     game_obj = None

@@ -2270,8 +2270,8 @@
         let gameIsActive = false; // 전역 선언 추가
         window._gameIsActive = false; // Supabase RT용 선언 초기화
         window._holdWinnerChecksUntilNextStart = false;
-        // 테스트 모드: 서버 확정값과 화면이 1:1로 맞도록 시간/각도 보정을 모두 제거
-        const ROULETTE_STOP_COMP_MS = 0;
+        // 미세 시간 보정: 체감상 0.05초만 더 회전
+        const ROULETTE_STOP_COMP_MS = -50;
         const ROULETTE_ANGLE_COMP_DEG = 0;
         let memoPolicyAllowDuplicates = {% if allow_duplicates_dash %}true{% else %}false{% endif %};
         let startRequestInFlight = false;

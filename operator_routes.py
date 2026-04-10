@@ -259,12 +259,13 @@ def api_reset_winners():
     if not source_key:
         return jsonify({"error": "초기화할 event_key 가 없습니다."}), 400
 
-    _, _, _, title, prizes, memo, _, allow_duplicates, allowed_list, event_at = _db().get_data(source_key)
+    _, _, _, title, prizes, memo, _, allow_duplicates, allowed_list, _event_at = _db().get_data(source_key)
     next_title = _ensure_new_title_prefix(title or "")
+    now_event_at = datetime.now().replace(microsecond=0).isoformat()
     if allowed_list is not None:
         parse_allowed_list_text(allowed_list or "")
 
-    new_key = _db().next_event_id(event_at)
+    new_key = _db().next_event_id(now_event_at)
     ok_save, err_save = _db().save_data_blocking(
         new_key,
         None,
@@ -275,7 +276,7 @@ def api_reset_winners():
         winners="",  # 핵심: 당첨자만 초기화
         allow_duplicates=bool(allow_duplicates),
         allowed_list=allowed_list or "",
-        event_at=event_at,
+        event_at=now_event_at,
     )
     if not ok_save:
         return _operator_storage_error_response(err_save)
@@ -296,7 +297,7 @@ def api_reset_winners():
             "winners": "",
             "allow_duplicates": bool(allow_duplicates),
             "allowed_list_text": allowed_list or "",
-            "event_at": event_at or "",
+            "event_at": now_event_at,
             "reset_winners": True,
         }
     )

@@ -1683,7 +1683,9 @@
             window._operatorDraftMode = true;
             var reqSeq = Number(window._opRegisterNewReqSeq || 0) + 1;
             window._opRegisterNewReqSeq = reqSeq;
-            var requestedEventAt = opEventAtToApiValue((document.getElementById('op-event-at') || {}).value || '');
+            var now = new Date();
+            function pad2(n) { return String(n).padStart(2, '0'); }
+            var requestedEventAt = now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate()) + 'T' + pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds());
             var body = {
                 event_at: requestedEventAt
             };
@@ -1737,6 +1739,32 @@
                             allowed_list_text: '',
                             force_new_title_prefix: true
                         };
+                        // 생성 직후 화면을 즉시 "빈 새 이벤트" 상태로 동기화한다.
+                        document.getElementById('op-title').value = saveBody.title;
+                        document.getElementById('op-prizes').value = '';
+                        document.getElementById('op-memo').value = '';
+                        document.getElementById('op-allow-dup').checked = false;
+                        document.getElementById('op-allowed-list').value = '';
+                        var eatBeforeSave = document.getElementById('op-event-at');
+                        if (eatBeforeSave) {
+                            var v0 = opEventAtToInputValue(saveBody.event_at || '');
+                            eatBeforeSave.value = v0;
+                            if (eatBeforeSave._flatpickr) eatBeforeSave._flatpickr.setDate(v0, false, 'Y-m-d H:i');
+                        }
+                        window._opCurrentWinners = '';
+                        opRenderWinnersPanel('', '');
+                        opUpdateParticipantsTotalFromText('');
+                        opApplySelectedEventToLivePanels({
+                            event_key: key,
+                            title: saveBody.title,
+                            prizes: '',
+                            memo: '',
+                            winners: '',
+                            allow_duplicates: false,
+                            allowed_list_text: ''
+                        });
+                        var h1BeforeSave = document.getElementById('event-title-display');
+                        if (h1BeforeSave) h1BeforeSave.textContent = saveBody.title;
                         return fetch('/api/operator/save', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },

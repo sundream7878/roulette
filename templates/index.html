@@ -1185,6 +1185,7 @@
         window._opDraftEventMeta = window._opDraftEventMeta || null;
         window._opRegisterNewReqSeq = window._opRegisterNewReqSeq || 0;
         window._opForceHistoryTopOnce = window._opForceHistoryTopOnce || false;
+        window._opForceLatestAfterDeleteUntil = window._opForceLatestAfterDeleteUntil || 0;
         /** true: 「새 이벤트로 등록」 직후~저장 전. RT/소켓 자동 새로고침이 폼을 덮어쓰지 않도록 함 */
         window._operatorDraftMode = false;
 
@@ -1908,6 +1909,9 @@
                         }
                         // 삭제 후에는 항상 "히스토리 최상단"을 선택/활성화한다.
                         // (기존 opActiveKey 우선 선택 때문에 임의 항목이 선택된 것처럼 보이는 현상 방지)
+                        // 비동기 소켓/폴링 갱신으로 선택이 다시 흔들리는 문제를 막기 위해
+                        // 삭제 직후 짧은 시간 동안은 최신(top) 고정 모드로 유지한다.
+                        window._opForceLatestAfterDeleteUntil = Date.now() + 12000;
                         opRefreshHistory({
                             skipEmptyStatus: true,
                             forceTopAfterDelete: true
@@ -2024,6 +2028,8 @@
                 // 삭제 직후 1회는 후속 갱신에서도 상단 고정을 유지한다.
                 window._opForceHistoryTopOnce = true;
             }
+            var forceLatestByDeleteLock = Number(window._opForceLatestAfterDeleteUntil || 0) > Date.now();
+            var shouldForceLatestTop = !!opts.forceTopAfterDelete || forceLatestByDeleteLock;
             fetch('/api/operator/events?limit=50', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
                 var sel = document.getElementById('op-event-history');
                 if (!sel) return;
@@ -2049,7 +2055,9 @@
                 });
                 sel.innerHTML = '';
                 var activeRow = rows.filter(function (e) { return e.is_active; })[0];
-                var preferred = isDraftMode ? '' : (opActiveKey || (activeRow && (activeRow.id || activeRow.url)) || '');
+                var preferred = shouldForceLatestTop
+                    ? ''
+                    : (isDraftMode ? '' : (opActiveKey || (activeRow && (activeRow.id || activeRow.url)) || ''));
                 var anySel = false;
                 rows.forEach(function (ev) {
                     var opt = document.createElement('option');
@@ -2066,18 +2074,18 @@
                     }
                     sel.appendChild(opt);
                 });
-                if (window._opForceHistoryTopOnce && sel.options.length) {
+                if ((window._opForceHistoryTopOnce || shouldForceLatestTop) && sel.options.length) {
                     sel.selectedIndex = 0;
                     sel.scrollTop = 0;
                 }
                 if (!anySel && sel.options.length) sel.options[0].selected = true;
 
                 // 삭제 직후에는 최상단 항목을 강제로 선택 + 활성화
-                if (opts.forceTopAfterDelete && sel.options.length) {
+                if (shouldForceLatestTop && sel.options.length) {
                     sel.selectedIndex = 0;
                     sel.scrollTop = 0;
                     var topKey = String(sel.options[0].value || '').trim();
-                    if (topKey) {
+                    if (topKey && topKey !== String(opActiveKey || '').trim()) {
                         fetch('/api/operator/select', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -2088,8 +2096,11 @@
                             .then(function (d3) {
                                 if (d3 && !d3.error) {
                                     opApplySelectPayload(d3, { forceExitDraft: true, expectedEventKey: topKey });
-                                    // 후속 opRefreshHistory(기본 호출)에서 1회 더 상단 고정 후 플래그 해제
-                                    opSetStatus('선택 이벤트를 삭제했고, 히스토리 최상단 이벤트로 전환했습니다.', false);
+                                    // 후속 갱신 경합이 끝났다고 판단되면 top 고정 락을 해제한다.
+                                    window._opForceLatestAfterDeleteUntil = 0;
+                                    if (opts.forceTopAfterDelete) {
+                                        opSetStatus('선택 이벤트를 삭제했고, 히스토리 최상단 이벤트로 전환했습니다.', false);
+                                    }
                                 } else {
                                     opSetStatus('삭제는 완료됐지만 최상단 이벤트 전환에 실패했습니다.', true);
                                     window._opForceHistoryTopOnce = false;
@@ -2099,6 +2110,9 @@
                                 opSetStatus('삭제는 완료됐지만 최상단 이벤트 전환 중 오류가 있었습니다.', true);
                                 window._opForceHistoryTopOnce = false;
                             });
+                    } else if (topKey) {
+                        // 이미 최신 이벤트가 활성화되어 있으면 고정 락만 해제한다.
+                        window._opForceLatestAfterDeleteUntil = 0;
                     }
                     return;
                 }

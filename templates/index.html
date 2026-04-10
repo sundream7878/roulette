@@ -1449,12 +1449,12 @@
             var opMemo = document.getElementById('op-memo');
             var nextPrizes = (d.prizes === null || d.prizes === undefined) ? '' : String(d.prizes);
             var nextMemo = (d.memo === null || d.memo === undefined) ? '' : String(d.memo);
-            if (opPrizes && (nextPrizes.trim() !== '' || !String(opPrizes.value || '').trim())) opPrizes.value = nextPrizes;
-            if (opMemo && (nextMemo.trim() !== '' || !String(opMemo.value || '').trim())) opMemo.value = nextMemo;
+            if (opPrizes) opPrizes.value = nextPrizes;
+            if (opMemo) opMemo.value = nextMemo;
             document.getElementById('op-allow-dup').checked = !!d.allow_duplicates;
             var opAllowed = document.getElementById('op-allowed-list');
             var nextAllowed = (d.allowed_list_text === null || d.allowed_list_text === undefined) ? '' : String(d.allowed_list_text);
-            if (opAllowed && (nextAllowed.trim() !== '' || !String(opAllowed.value || '').trim())) opAllowed.value = nextAllowed;
+            if (opAllowed) opAllowed.value = nextAllowed;
             var eat = document.getElementById('op-event-at');
             if (eat) {
                 var v = opEventAtToInputValue(d.event_at || '');
@@ -1596,14 +1596,8 @@
                 }
             }
             if (typeof renderMemoWithPolicy === 'function') {
-                var memoTextEl = document.getElementById('memo-text');
-                var currMemo = memoTextEl ? String(memoTextEl.textContent || '').trim() : '';
                 var nextMemo = (d.memo === null || d.memo === undefined) ? '' : String(d.memo);
-                if (nextMemo.trim() !== '' || !currMemo) {
-                    renderMemoWithPolicy(nextMemo, !!d.allow_duplicates);
-                } else {
-                    renderMemoWithPolicy(currMemo, !!d.allow_duplicates);
-                }
+                renderMemoWithPolicy(nextMemo, !!d.allow_duplicates);
             }
             var allowedPairs = opParseAllowedListPairs(d.allowed_list_text || '');
             var winnerSet = new Set(opSplitText(d.winners || ''));

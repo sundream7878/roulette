@@ -1601,9 +1601,15 @@
             }
             var allowedPairs = opParseAllowedListPairs(d.allowed_list_text || '');
             var winnerSet = new Set(opSplitText(d.winners || ''));
-            var roulettePairs = (!!d.allow_duplicates)
-                ? allowedPairs.slice()
-                : allowedPairs.filter(function (row) { return !winnerSet.has(row[0]); });
+            var roulettePairs;
+            if (window._holdWinnerChecksUntilNextStart) {
+                // 당첨 직후에는 다음 시작 전까지 원판/명단을 유지한다.
+                roulettePairs = allowedPairs.slice();
+            } else {
+                roulettePairs = (!!d.allow_duplicates)
+                    ? allowedPairs.slice()
+                    : allowedPairs.filter(function (row) { return !winnerSet.has(row[0]); });
+            }
             var confirmedAll = roulettePairs.map(function (row) { return row[0]; });
             opRenderParticipantsListFromAllowed(allowedPairs, new Set(confirmedAll));
             if (typeof updateParticipantsUI === 'function') {
@@ -3544,7 +3550,11 @@
                         }
                     }
                     if (ed.participants !== undefined) {
+                        if (window._holdWinnerChecksUntilNextStart) {
+                            console.log('당첨 직후 홀드 상태: game_status 참가자 갱신 보류');
+                        } else {
                         updateParticipantsUI(ed.participants, null, ed.confirmed_all);
+                        }
                     }
 
                     if (ed.roulette_closed_message) {
@@ -3824,6 +3834,10 @@
             socket.on('update_participants', function (data) {
                 if (window._operatorDraftMode) {
                     console.log('참가자 업데이트 생략 (운영자 신규 작성 모드)');
+                    return;
+                }
+                if (window._holdWinnerChecksUntilNextStart) {
+                    console.log('당첨 직후 홀드 상태: update_participants 적용 보류');
                     return;
                 }
                 if (gameIsActive) {

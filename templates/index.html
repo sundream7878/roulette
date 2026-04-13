@@ -3706,14 +3706,14 @@
                             // 애니메이션 시작
                             animationFrameId = requestAnimationFrame(animateRemaining);
 
-                            // 안전 장치: 남은 시간 + 약간의 여유 시간 후 애니메이션 강제 종료
+                            // 안전 장치: 남은 시간 + 최소 여유 시간 후 애니메이션 강제 종료
                             setTimeout(() => {
                                 if (animationFrameId) {
                                     cancelAnimationFrame(animationFrameId);
                                     document.getElementById('rotating-container').style.transform =
                                         `rotate(${adjustedFinalAngle}deg)`;
                                 }
-                            }, totalRemainingDuration + 500);
+                            }, totalRemainingDuration + 50);
                         }
 
                         // 남은 시간이 0이하면 00:00:00으로 표시

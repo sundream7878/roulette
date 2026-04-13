@@ -3093,20 +3093,11 @@
                     updateParticipantsUI(data.participants, null, data.confirmed_all);
                 }
 
+                // 중요: 클라이언트 로컬 시계(Date.now) 오차 영향을 배제하기 위해
+                // 서버가 계산해 보낸 duration 값을 우선 사용한다.
                 let duration = Number(data.duration || 0);
+                duration = Math.max(0.05, duration - (ROULETTE_STOP_COMP_MS / 1000));
                 const targetUnixMs = Number(data.target_unix_ms || 0);
-                if (targetUnixMs > 0) {
-                    const remainSec = (targetUnixMs - Date.now()) / 1000;
-                    if (isFinite(remainSec)) {
-                        // 서버가 계산한 duration과 실제 수신 시점 잔여 시간을 맞춰 전환 지연을 줄인다.
-                        duration = Math.max(
-                            0.05,
-                            Math.min(duration > 0 ? duration : remainSec, remainSec) - (ROULETTE_STOP_COMP_MS / 1000)
-                        );
-                    }
-                } else {
-                    duration = Math.max(0.05, duration - (ROULETTE_STOP_COMP_MS / 1000));
-                }
                 const finalAngle = data.finalAngle;
                 const winner = data.winner;
 
@@ -3637,7 +3628,11 @@
 
                         // 남은 시간 업데이트 
                         const now = new Date();
-                        const diffMs = targetDate - now;
+                        const serverDurationLeftRaw = Number(data.duration_left);
+                        const hasServerDurationLeft = isFinite(serverDurationLeftRaw) && serverDurationLeftRaw > 0;
+                        const diffMs = hasServerDurationLeft
+                            ? (serverDurationLeftRaw * 1000)
+                            : (targetDate - now);
                         console.log("시간 차이(ms):", diffMs);
 
                         // 진행 중인 게임이고 회전 정보가 있는 경우
@@ -3651,7 +3646,7 @@
                             const adjustedFinalAngle = finalAngle + ROULETTE_ANGLE_COMP_DEG;
 
                             // 남은 시간으로 애니메이션 속도 조정
-                            const duration_left_raw = data.duration_left || (diffMs / 1000);
+                            const duration_left_raw = hasServerDurationLeft ? serverDurationLeftRaw : (diffMs / 1000);
                             const duration_left = Math.max(0.05, Number(duration_left_raw) - (ROULETTE_STOP_COMP_MS / 1000));
                             const total_duration = data.total_duration || duration_left;
                             const progress = 1 - (duration_left / total_duration);

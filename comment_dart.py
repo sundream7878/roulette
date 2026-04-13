@@ -879,6 +879,7 @@ def handle_start_rotation(data):
         'finalAngle': final_angle,
         'winner': winner,
         'round_id': round_id,
+        'sent_unix_ms': int(time.time() * 1000),
         'target_unix_ms': int((time.time() + max(0.0, duration)) * 1000),
         'participants': p_list # 정확한 명단 동기화
     }, namespace='/')
@@ -886,7 +887,8 @@ def handle_start_rotation(data):
     # 모든 클라이언트에게 게임 상태 정보 브로드캐스트
     socketio.emit('game_status', {
         'target_time': game['target_time'].isoformat(),
-        'final_winner': winner
+        'final_winner': winner,
+        'sent_unix_ms': int(time.time() * 1000),
     }, namespace='/')
     
     # 비프음 재생
@@ -1254,6 +1256,7 @@ def handle_request_game_status():
                     'finalAngle': active_game.get('current_angle', 0),
                     'duration_left': duration_left,
                     'total_duration': active_game.get('total_duration', 0),
+                    'sent_unix_ms': int(time.time() * 1000),
                     'event_data': active_event_data,
                 },
                 namespace='/',
@@ -1266,6 +1269,7 @@ def handle_request_game_status():
                 'finalAngle': active_game.get('current_angle', 0),
                 'winner': active_game.get('final_winner'),
                 'round_id': active_game.get('round_id', ''),
+                'sent_unix_ms': int(time.time() * 1000),
                 'target_unix_ms': int((time.time() + max(0.0, duration_left)) * 1000),
             }, namespace='/', to=request.sid)  # 요청한 클라이언트에게만 전송
             

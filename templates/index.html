@@ -3009,6 +3009,12 @@
 
             socket.on('connect', function () {
                 console.log('서버에 연결되었습니다.');
+                try {
+                    var tr = (socket && socket.io && socket.io.engine && socket.io.engine.transport)
+                        ? socket.io.engine.transport.name
+                        : '(unknown)';
+                    console.log('[timing-debug] socket transport:', tr);
+                } catch (e) {}
                 // 게스트 모드인지 확인하고 게임 상태 요청
                 const isGuestMode = document.getElementById('guest-current-time') !== null;
                 if (isGuestMode) {
@@ -3064,6 +3070,22 @@
 
             socket.on('start_game', function (data) {
                 console.log('게임 시작:', data);
+                try {
+                    var recvMs = Date.now();
+                    var sentMs = Number((data && data.sent_unix_ms) || 0);
+                    var targetMs = Number((data && data.target_unix_ms) || 0);
+                    var tr2 = (socket && socket.io && socket.io.engine && socket.io.engine.transport)
+                        ? socket.io.engine.transport.name
+                        : '(unknown)';
+                    console.log('[timing-debug][start_game]', {
+                        transport: tr2,
+                        sent_unix_ms: sentMs || null,
+                        recv_unix_ms: recvMs,
+                        recv_minus_sent_ms: sentMs > 0 ? (recvMs - sentMs) : null,
+                        payload_duration_s: Number((data && data.duration) || 0),
+                        remain_by_target_s: targetMs > 0 ? ((targetMs - recvMs) / 1000) : null
+                    });
+                } catch (e) {}
                 currentRoundId = (data && data.round_id) ? String(data.round_id) : '';
                 // 요청사항: 당첨 직후 체크는 유지하고, 다음 시작 시점에만 해제 반영
                 window._holdWinnerChecksUntilNextStart = false;
@@ -3507,6 +3529,23 @@
             });
             socket.on('game_status', function (data) {
                 console.log('게임 상태 수신:', data);
+                try {
+                    var recvMs2 = Date.now();
+                    var sentMs2 = Number((data && data.sent_unix_ms) || 0);
+                    var tr3 = (socket && socket.io && socket.io.engine && socket.io.engine.transport)
+                        ? socket.io.engine.transport.name
+                        : '(unknown)';
+                    if (data && data.is_running) {
+                        console.log('[timing-debug][game_status]', {
+                            transport: tr3,
+                            sent_unix_ms: sentMs2 || null,
+                            recv_unix_ms: recvMs2,
+                            recv_minus_sent_ms: sentMs2 > 0 ? (recvMs2 - sentMs2) : null,
+                            duration_left_s: Number((data && data.duration_left) || 0),
+                            total_duration_s: Number((data && data.total_duration) || 0)
+                        });
+                    }
+                } catch (e) {}
 
                 // 1. 이벤트 데이터 동기화 (게스트 및 초기 접속자용)
                 if (data.event_data && !window._operatorDraftMode) {

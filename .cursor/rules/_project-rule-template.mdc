@@ -1,0 +1,21 @@
+---
+description: Reusable project guardrail template
+alwaysApply: true
+---
+
+# Project Guardrails Template
+
+## Change Scope
+- Fix one issue at a time.
+- Do not bundle unrelated fixes.
+
+## Safety
+- Prefer rollback-safe commits.
+- Do not change core timing/constants without evidence.
+
+## Validation
+- Verify with real runtime checks before completion.
+- For UI timing issues, test on at least two browsers.
+
+## Communication
+- Report commit hash, timestamp, and short reason.

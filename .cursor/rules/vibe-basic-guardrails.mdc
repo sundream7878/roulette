@@ -1,0 +1,20 @@
+---
+description: Roulette timing safety and step-by-step workflow
+alwaysApply: true
+---
+
+# Vibe Basic Guardrails
+
+## Timing Rules
+- Do not change fixed timing constants (`ROULETTE_STOP_COMP_MS`, `ROULETTE_ANGLE_COMP_DEG`) without explicit user approval.
+- Use only `sent_unix_ms`-based dynamic lag compensation for timing alignment.
+- Do not change `NETWORK_LAG_COMP_MAX_MS` without timing-debug evidence.
+
+## Work Rules
+- Fix one issue at a time; no multi-fix commits.
+- Separate stability fixes from refactor/style changes.
+- Keep rollback-safe commits small and clear.
+
+## Verification Rules
+- For timing-related changes, verify on both Chrome and Whale.
+- Run at least 3 rounds and check timing-debug logs before concluding.

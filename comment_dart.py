@@ -879,7 +879,7 @@ def handle_start_rotation(data):
         'finalAngle': final_angle,
         'winner': winner,
         'round_id': round_id,
-        # 클라이언트가 수신 지연(ms)을 계산하는 기준 시각 (동적 보정용)
+        # [VIBE RULE] 클라이언트가 수신 지연(ms)을 계산하는 기준 시각 (동적 보정용)
         'sent_unix_ms': int(time.time() * 1000),
         'target_unix_ms': int((time.time() + max(0.0, duration)) * 1000),
         'participants': p_list # 정확한 명단 동기화
@@ -1257,7 +1257,7 @@ def handle_request_game_status():
                     'finalAngle': active_game.get('current_angle', 0),
                     'duration_left': duration_left,
                     'total_duration': active_game.get('total_duration', 0),
-                    # game_status 중간합류 경로에서도 동일한 동적 보정을 적용하기 위한 기준 시각
+                    # [VIBE RULE] game_status 중간합류 경로에서도 동일한 동적 보정을 적용하기 위한 기준 시각
                     'sent_unix_ms': int(time.time() * 1000),
                     'event_data': active_event_data,
                 },
@@ -1271,7 +1271,7 @@ def handle_request_game_status():
                 'finalAngle': active_game.get('current_angle', 0),
                 'winner': active_game.get('final_winner'),
                 'round_id': active_game.get('round_id', ''),
-                # 요청-응답 지연 측정 기준값 (브라우저별 동적 시간보정 공통)
+                # [VIBE RULE] 요청-응답 지연 측정 기준값 (브라우저별 동적 시간보정 공통)
                 'sent_unix_ms': int(time.time() * 1000),
                 'target_unix_ms': int((time.time() + max(0.0, duration_left)) * 1000),
             }, namespace='/', to=request.sid)  # 요청한 클라이언트에게만 전송

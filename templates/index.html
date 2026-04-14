@@ -2321,6 +2321,7 @@
         const ROULETTE_ANGLE_COMP_DEG = 0;
         // 동적 보정 상한(ms): 비정상 지연 스파이크가 과보정으로 이어지지 않도록 캡을 둔다.
         const NETWORK_LAG_COMP_MAX_MS = 1500;
+        const DEBUG_TIMING_LOG = false;
         let memoPolicyAllowDuplicates = {% if allow_duplicates_dash %}true{% else %}false{% endif %};
         let startRequestInFlight = false;
         let startRequestTimeout = null;
@@ -3047,7 +3048,7 @@
                     var tr = (socket && socket.io && socket.io.engine && socket.io.engine.transport)
                         ? socket.io.engine.transport.name
                         : '(unknown)';
-                    console.log('[timing-debug] socket transport:', tr);
+                    if (DEBUG_TIMING_LOG) console.log('[timing-debug] socket transport:', tr);
                 } catch (e) {}
                 // 게스트 모드인지 확인하고 게임 상태 요청
                 const isGuestMode = document.getElementById('guest-current-time') !== null;
@@ -3112,15 +3113,17 @@
                     var tr2 = (socket && socket.io && socket.io.engine && socket.io.engine.transport)
                         ? socket.io.engine.transport.name
                         : '(unknown)';
-                    console.log('[timing-debug][start_game]', {
-                        transport: tr2,
-                        sent_unix_ms: sentMs || null,
-                        recv_unix_ms: recvMs,
-                        recv_minus_sent_ms: sentMs > 0 ? (recvMs - sentMs) : null,
-                        network_lag_comp_ms: networkLagCompMs,
-                        payload_duration_s: Number((data && data.duration) || 0),
-                        remain_by_target_s: targetMs > 0 ? ((targetMs - recvMs) / 1000) : null
-                    });
+                    if (DEBUG_TIMING_LOG) {
+                        console.log('[timing-debug][start_game]', {
+                            transport: tr2,
+                            sent_unix_ms: sentMs || null,
+                            recv_unix_ms: recvMs,
+                            recv_minus_sent_ms: sentMs > 0 ? (recvMs - sentMs) : null,
+                            network_lag_comp_ms: networkLagCompMs,
+                            payload_duration_s: Number((data && data.duration) || 0),
+                            remain_by_target_s: targetMs > 0 ? ((targetMs - recvMs) / 1000) : null
+                        });
+                    }
                 } catch (e) {}
                 currentRoundId = (data && data.round_id) ? String(data.round_id) : '';
                 // 요청사항: 당첨 직후 체크는 유지하고, 다음 시작 시점에만 해제 반영
@@ -3572,7 +3575,7 @@
                     var tr3 = (socket && socket.io && socket.io.engine && socket.io.engine.transport)
                         ? socket.io.engine.transport.name
                         : '(unknown)';
-                    if (data && data.is_running) {
+                    if (DEBUG_TIMING_LOG && data && data.is_running) {
                         console.log('[timing-debug][game_status]', {
                             transport: tr3,
                             sent_unix_ms: sentMs2 || null,

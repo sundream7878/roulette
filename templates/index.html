@@ -338,9 +338,6 @@
                 width: min(92vw, 600px);
                 max-height: 420px;
             }
-            #all-participants-scroll {
-                max-height: 360px;
-            }
 
             #prize-right-col {
                 margin-left: 0;
@@ -658,16 +655,8 @@
             margin-left: 40px;
             text-align: left;
             max-height: 600px;
-            overflow: hidden;
-            min-width: 160px;
-            display: flex;
-            flex-direction: column;
-        }
-        #all-participants-scroll {
             overflow-y: auto;
-            flex: 1 1 auto;
-            min-height: 0;
-            padding-right: 4px;
+            min-width: 160px;
         }
 
         .all-participant-item {
@@ -805,6 +794,9 @@
             margin-bottom: 6px;
             padding-left: 6px;
             letter-spacing: 0.1px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
             background: #fff;
             padding-top: 4px;
             padding-bottom: 6px;
@@ -1070,22 +1062,20 @@
                     참가명단 (티켓 수)
                 </strong>
             </div>
-            <div id="all-participants-scroll">
-                {% if allowed_info %}
-                {% for info in allowed_info %}
-                <div class="all-participant-item {% if info.is_confirmed %}is-confirmed{% endif %}">
-                    {% if info.is_confirmed %}
-                    <span class="confirmed-badge">✅</span>
-                    {% else %}
-                    <span class="confirmed-badge" style="visibility:hidden;">✅</span>
-                    {% endif %}
-                    <span class="p-name">{{ info.name }}</span> <span class="p-tickets">({{ info.tickets }}장)</span>
-                </div>
-                {% endfor %}
+            {% if allowed_info %}
+            {% for info in allowed_info %}
+            <div class="all-participant-item {% if info.is_confirmed %}is-confirmed{% endif %}">
+                {% if info.is_confirmed %}
+                <span class="confirmed-badge">✅</span>
                 {% else %}
-                <div style="color:#999; font-size:0.9em;">참여 명단이 없습니다.</div>
+                <span class="confirmed-badge" style="visibility:hidden;">✅</span>
                 {% endif %}
+                <span class="p-name">{{ info.name }}</span> <span class="p-tickets">({{ info.tickets }}장)</span>
             </div>
+            {% endfor %}
+            {% else %}
+            <div style="color:#999; font-size:0.9em;">참여 명단이 없습니다.</div>
+            {% endif %}
         </div>
 
         <!-- 사은품 목록 (오른쪽으로 이동) -->
@@ -1550,11 +1540,8 @@
             });
             return out;
         }
-        function getParticipantListContainer() {
-            return document.getElementById('all-participants-scroll') || document.getElementById('all-participants-container');
-        }
         function opRenderParticipantsListFromAllowed(allowedPairs, confirmedSet) {
-            var allContainer = getParticipantListContainer();
+            var allContainer = document.getElementById('all-participants-container');
             if (!allContainer) return;
             Array.prototype.slice.call(allContainer.querySelectorAll('.all-participant-item, .participant-separator, .participants-empty')).forEach(function (el) {
                 if (el && el.parentNode) el.parentNode.removeChild(el);
@@ -3813,7 +3800,7 @@
             });
 
             function syncDomParticipantList(nameTicketPairs, confirmedAll) {
-                var allContainer = getParticipantListContainer();
+                var allContainer = document.getElementById('all-participants-container');
                 if (!allContainer) return;
                 var confirmedSet = confirmedAll ? new Set(confirmedAll) : null;
                 Array.prototype.slice.call(allContainer.querySelectorAll('.all-participant-item, .participant-separator, .participants-empty')).forEach(function (el) {
@@ -3861,7 +3848,7 @@
             window.syncDomParticipantList = syncDomParticipantList;
 
             function updateConfirmedOnly(confirmed_all, p_list) {
-                const allContainer = getParticipantListContainer();
+                const allContainer = document.getElementById('all-participants-container');
                 if (!allContainer) return;
                 if (window._holdWinnerChecksUntilNextStart) {
                     console.log('체크 상태 유지 중: 다음 시작 전까지 당첨 직후 체크 해제 보류');

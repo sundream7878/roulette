@@ -2311,15 +2311,21 @@
         let gameIsActive = false; // 전역 선언 추가
         window._gameIsActive = false; // Supabase RT용 선언 초기화
         window._holdWinnerChecksUntilNextStart = false;
-        // 시간 보정 없음(원복): 서버 duration 기준 그대로 사용
+        // [타이밍 원칙]
+        // 1) 고정 상수 보정(예: -300ms, +1.25deg)은 브라우저/네트워크 편차를 키우므로 기본값 0 유지.
+        // 2) 정지 시점 보정은 sent_unix_ms 기반 "동적 지연 보정"만 사용.
+        // 3) 아래 상수는 임의 변경 금지. 변경 시 웨일/크롬/타 단말 동시 검증 필수.
         const ROULETTE_STOP_COMP_MS = 0;
         const ROULETTE_ANGLE_COMP_DEG = 0;
+        // 동적 보정 상한(ms): 비정상 지연 스파이크가 과보정으로 이어지지 않도록 캡을 둔다.
         const NETWORK_LAG_COMP_MAX_MS = 1500;
         let memoPolicyAllowDuplicates = {% if allow_duplicates_dash %}true{% else %}false{% endif %};
         let startRequestInFlight = false;
         let startRequestTimeout = null;
 
         function computeNetworkLagCompMs(sentUnixMs) {
+            // sent_unix_ms(서버 송신시각)와 수신시각(Date.now) 차이를 "이번 클라이언트 지연"으로 본다.
+            // 고정 보정 대신 라운드/브라우저별 실측 지연만큼만 duration을 줄인다.
             var sent = Number(sentUnixMs || 0);
             if (!isFinite(sent) || sent <= 0) return 0;
             var lag = Date.now() - sent;
@@ -3126,8 +3132,8 @@
                     updateParticipantsUI(data.participants, null, data.confirmed_all);
                 }
 
-                // 중요: 클라이언트 로컬 시계(Date.now) 오차 영향을 배제하기 위해
-                // 서버가 계산해 보낸 duration 값을 우선 사용한다.
+                // [중요] 서버 duration + 동적 지연보정 방식.
+                // 절대 "브라우저별 상수 보정"으로 되돌리지 말 것.
                 let duration = Number(data.duration || 0);
                 duration = Math.max(0.05, duration - (ROULETTE_STOP_COMP_MS / 1000));
                 duration = Math.max(0.05, duration - (networkLagCompMs / 1000));
@@ -3698,7 +3704,8 @@
                             const finalAngle = data.finalAngle;
                             const adjustedFinalAngle = finalAngle + ROULETTE_ANGLE_COMP_DEG;
 
-                            // 남은 시간으로 애니메이션 속도 조정
+                            // [중요] 중간 합류(game_status) 경로도 start_game과 동일한 동적 지연보정 규칙을 적용한다.
+                            // 이 경로 보정이 빠지면 브라우저별 0.3~0.7초 체감 편차가 재발한다.
                             const duration_left_raw = hasServerDurationLeft ? serverDurationLeftRaw : (diffMs / 1000);
                             const duration_left = Math.max(
                                 0.05,

@@ -69,6 +69,8 @@ def _broadcast_event_snapshot(
     winners: str = "",
     participants: Optional[dict] = None,
     allow_duplicates: Optional[bool] = None,
+    force_winners_sync: bool = False,
+    reset_winners_ui: bool = False,
 ):
     """같은 이벤트 내 데이터 변경(예: 당첨자 리셋/삭제)을 즉시 UI에 반영."""
     sio = _socketio()
@@ -97,6 +99,8 @@ def _broadcast_event_snapshot(
                 "memo": memo or "",
                 "winners": winners or "",
                 "allow_duplicates": bool(allow_duplicates),
+                "force_winners_sync": bool(force_winners_sync),
+                "reset_winners_ui": bool(reset_winners_ui),
             },
             namespace="/",
         )
@@ -539,6 +543,8 @@ def api_winners_reset():
         winners="",
         participants=participants,
         allow_duplicates=allow_duplicates,
+        force_winners_sync=True,
+        reset_winners_ui=True,
     )
     return jsonify({"ok": True, "event_key": key, "winners": ""})
 
@@ -606,5 +612,6 @@ def api_winners_delete():
         winners=new_winners,
         participants=participants,
         allow_duplicates=allow_duplicates,
+        force_winners_sync=True,
     )
     return jsonify({"ok": True, "event_key": key, "winners": new_winners})

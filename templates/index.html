@@ -2294,11 +2294,13 @@
                 : (Object.prototype.hasOwnProperty.call(ed, 'participants') || displayCount > 0);
             return hasPrizes && hasMemo && hasParticipants;
         }
-        function shouldApplyIncomingWinners(nextWinnersRaw, currentWinnersRaw) {
+        function shouldApplyIncomingWinners(nextWinnersRaw, currentWinnersRaw, opts) {
+            opts = opts || {};
             var nextW = String(nextWinnersRaw == null ? '' : nextWinnersRaw).trim();
             var curW = String(currentWinnersRaw == null ? '' : currentWinnersRaw).trim();
             if (nextW) return true;
             if (!curW) return true;
+            if (opts.forceSync) return true;
             // 이벤트 전환(새 이벤트/초기 상태) 중에는 빈 winners 적용 허용
             if (window._rouletteAwaitingGameStatus || !!window._rouletteSwitchTargetKey) return true;
             return false;
@@ -2509,6 +2511,23 @@
             }
         }
         window.clearRouletteEventEndedState = clearRouletteEventEndedState;
+
+        function clearWinnerUiAfterReset() {
+            window._holdWinnerChecksUntilNextStart = false;
+            window._winnerDisplayed = false;
+            var winnerText = document.getElementById('winner');
+            if (winnerText) winnerText.innerText = '';
+            var congratulation = document.getElementById('congratulation');
+            if (congratulation) {
+                congratulation.style.display = 'none';
+                congratulation.classList.remove('blink');
+            }
+            var winnerOverlay = document.getElementById('winner-overlay');
+            if (winnerOverlay && !window._rouletteEventClosed) {
+                winnerOverlay.style.display = 'none';
+                winnerOverlay.style.animation = 'none';
+            }
+        }
 
         // 오디오 관련 변수
         let beepSound = null;
@@ -4066,7 +4085,8 @@
                         var nextPr = (data.prizes === null || data.prizes === undefined) ? "" : String(data.prizes);
                         prizeListEl.dataset.prizes = nextPr;
                     }
-                    if (data.winners !== undefined && shouldApplyIncomingWinners(data.winners, prevWinners)) {
+                    var forceWinnersSync = !!(data && data.force_winners_sync);
+                    if (data.winners !== undefined && shouldApplyIncomingWinners(data.winners, prevWinners, { forceSync: forceWinnersSync })) {
                         prizeListEl.dataset.winners = data.winners || "";
                     }
                     // 게임 중이라도 사은품 목록은 항상 최신화 (당첨자 표시를 위해)
@@ -4074,6 +4094,9 @@
                     window._opCurrentWinners = prizeListEl.dataset.winners || '';
                     if (typeof window.opRenderWinnersPanel === 'function') {
                         window.opRenderWinnersPanel(prizeListEl.dataset.prizes || '', window._opCurrentWinners);
+                    }
+                    if ((data && data.reset_winners_ui) || (forceWinnersSync && !String(prizeListEl.dataset.winners || '').trim())) {
+                        clearWinnerUiAfterReset();
                     }
                 }
 

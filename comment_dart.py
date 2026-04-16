@@ -569,6 +569,28 @@ def index():
         except Exception:
             pass
 
+    beep_sound_options = []
+    try:
+        static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+        if os.path.isdir(static_dir):
+            for fname in sorted(os.listdir(static_dir), key=lambda x: str(x).casefold()):
+                if not str(fname).lower().endswith(".mp3"):
+                    continue
+                # 팡파레는 당첨 사운드로 별도 관리하므로 기본 효과음 목록에서 제외
+                if str(fname).lower() == "fanfare.mp3":
+                    continue
+                key = str(fname)
+                label = os.path.splitext(str(fname))[0]
+                beep_sound_options.append({
+                    "key": key,
+                    "label": label,
+                    "url": f"/static/{key}",
+                })
+    except Exception as e:
+        print(f"DEBUG: [beep_sound_options] {e}")
+    if not beep_sound_options:
+        beep_sound_options = [{"key": "beep.mp3", "label": "beep", "url": "/static/beep.mp3"}]
+
     if current_user.is_authenticated:
         supabase_rt_url = os.getenv('SUPABASE_URL', '') or ''
         supabase_rt_anon_key = os.getenv('SUPABASE_ANON_KEY', '') or ''
@@ -587,6 +609,7 @@ def index():
                              allowed_info=allowed_info,
                              allowed_list_text=allowed_list_text,
                              allow_duplicates_dash=allow_duplicates_dash,
+                             beep_sound_options=beep_sound_options,
                              supabase_rt_url=supabase_rt_url,
                              supabase_rt_anon_key=supabase_rt_anon_key,
                              roulette_closed_message=_roulette_closed_message_for_event(active_url, title))

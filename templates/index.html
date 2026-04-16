@@ -400,7 +400,7 @@
         #sound-controls {
             display: flex;
             justify-content: center;
-            margin: 4px 0 12px;
+            margin: 10px 0 0;
         }
         .sound-control-item {
             display: inline-flex;
@@ -1075,22 +1075,6 @@
             </div>
         </div>
         {% endif %}
-        <div id="sound-controls">
-            <div class="sound-control-item">
-                {% if user.is_authenticated %}
-                <span class="time-label sound-label">효과음 선택:</span>
-                <select id="sound-profile">
-                    <option value="beep">기본 비프</option>
-                    <option value="chime">차임</option>
-                    <option value="wood">우드 톤</option>
-                    <option value="soft">소프트 톤</option>
-                </select>
-                {% endif %}
-                <span class="time-label sound-label">효과음 줄이기:</span>
-                <input type="range" id="sound-volume" min="0" max="100" step="1" value="80">
-                <span id="sound-volume-value">80%</span>
-            </div>
-        </div>
     </div>
 
     <div id="main-container">
@@ -1162,6 +1146,21 @@
                 <div id="memo-content-scroll">
                     <div class="memo-policy" id="memo-policy">{% if allow_duplicates_dash %}옵션 : 금일 이벤트는 중복당첨 가능합니다.{% else %}옵션 : 금일 이벤트는 중복당첨 없음{% endif %}</div>
                     <div class="memo-text" id="memo-text">{{ memo or '' }}</div>
+                </div>
+                <div id="sound-controls">
+                    <div class="sound-control-item">
+                        {% if user.is_authenticated %}
+                        <span class="time-label sound-label">효과음 선택:</span>
+                        <select id="sound-profile">
+                            {% for s in (beep_sound_options or []) %}
+                            <option value="{{ s.key|e }}">{{ s.label }}</option>
+                            {% endfor %}
+                        </select>
+                        {% endif %}
+                        <span class="time-label sound-label">효과음 줄이기:</span>
+                        <input type="range" id="sound-volume" min="0" max="100" step="1" value="80">
+                        <span id="sound-volume-value">80%</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2595,12 +2594,21 @@
         let lastFanfareRoundId = '';
         const SOUND_VOLUME_STORAGE_KEY = 'roulette_sound_volume';
         const SOUND_PROFILE_STORAGE_KEY = 'roulette_sound_profile';
-        const BEEP_SOUND_OPTIONS = {
-            beep: '/static/beep.mp3',
-            chime: '/static/chime.mp3',
-            wood: '/static/wood.mp3',
-            soft: '/static/soft.mp3'
-        };
+        const BEEP_SOUND_OPTIONS = (function () {
+            const raw = {{ (beep_sound_options or [])|tojson }};
+            const out = {};
+            (raw || []).forEach(function (row) {
+                if (!row || !row.key || !row.url) return;
+                out[String(row.key)] = String(row.url);
+            });
+            if (!Object.keys(out).length) {
+                out['beep.mp3'] = '/static/beep.mp3';
+            }
+            return out;
+        })();
+        const DEFAULT_BEEP_SOUND_KEY = Object.prototype.hasOwnProperty.call(BEEP_SOUND_OPTIONS, 'beep.mp3')
+            ? 'beep.mp3'
+            : Object.keys(BEEP_SOUND_OPTIONS)[0];
 
         function clampSoundVolume(v) {
             var n = Number(v);
@@ -2627,8 +2635,9 @@
             }
         }
         function setSoundProfile(profileKey, persist) {
-            var key = String(profileKey || 'beep');
+            var key = String(profileKey || DEFAULT_BEEP_SOUND_KEY);
             if (!Object.prototype.hasOwnProperty.call(BEEP_SOUND_OPTIONS, key)) key = 'beep';
+            if (!Object.prototype.hasOwnProperty.call(BEEP_SOUND_OPTIONS, key)) key = DEFAULT_BEEP_SOUND_KEY;
             beepSound = BEEP_SOUND_OPTIONS[key];
             var sel = document.getElementById('sound-profile');
             if (sel && sel.value !== key) sel.value = key;
@@ -2648,7 +2657,7 @@
             }
             var savedProfile = null;
             try { savedProfile = localStorage.getItem(SOUND_PROFILE_STORAGE_KEY); } catch (e) {}
-            setSoundProfile(savedProfile || 'beep', false);
+            setSoundProfile(savedProfile || DEFAULT_BEEP_SOUND_KEY, false);
             if (slider) {
                 slider.addEventListener('input', function () {
                     setSoundVolume(Number(slider.value) / 100, true);
@@ -2745,7 +2754,7 @@
             console.log("오디오 파일 로딩 시도");
 
             setSoundProfile((function () {
-                try { return localStorage.getItem(SOUND_PROFILE_STORAGE_KEY) || 'beep'; } catch (e) { return 'beep'; }
+                try { return localStorage.getItem(SOUND_PROFILE_STORAGE_KEY) || DEFAULT_BEEP_SOUND_KEY; } catch (e) { return DEFAULT_BEEP_SOUND_KEY; }
             })(), false);
             fanfareSound = '/static/fanfare.mp3';
 
@@ -2767,9 +2776,9 @@
                 beepAudio.volume = soundVolume;
                 beepAudio.play().catch(err => {
                     console.error("비프음 재생 실패:", err);
-                    if (beepSound !== BEEP_SOUND_OPTIONS.beep) {
+                    if (beepSound !== BEEP_SOUND_OPTIONS[DEFAULT_BEEP_SOUND_KEY]) {
                         // 선택 음원이 없거나 재생 실패 시 기본 비프로 자동 폴백
-                        setSoundProfile('beep', true);
+                        setSoundProfile(DEFAULT_BEEP_SOUND_KEY, true);
                         try {
                             beepAudio = new Audio(beepSound);
                             beepAudio.loop = true;

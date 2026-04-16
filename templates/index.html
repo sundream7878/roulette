@@ -400,11 +400,12 @@
         #sound-controls {
             display: flex;
             justify-content: center;
-            margin: 10px 0 0;
+            margin: 0 0 12px;
         }
         .sound-control-item {
             display: inline-flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 10px;
             padding: 6px 12px;
             border-radius: 999px;
@@ -415,6 +416,7 @@
             margin-right: 2px;
             font-size: 0.95em;
             color: #555;
+            white-space: nowrap;
         }
         #sound-volume {
             width: 140px;
@@ -1147,26 +1149,24 @@
                     <div class="memo-policy" id="memo-policy">{% if allow_duplicates_dash %}옵션 : 금일 이벤트는 중복당첨 가능합니다.{% else %}옵션 : 금일 이벤트는 중복당첨 없음{% endif %}</div>
                     <div class="memo-text" id="memo-text">{{ memo or '' }}</div>
                 </div>
-                <div id="sound-controls">
-                    <div class="sound-control-item">
-                        {% if user.is_authenticated %}
-                        <span class="time-label sound-label">효과음 선택:</span>
-                        <select id="sound-profile">
-                            {% for s in (beep_sound_options or []) %}
-                            <option value="{{ s.key|e }}">{{ s.label }}</option>
-                            {% endfor %}
-                        </select>
-                        {% endif %}
-                        <span class="time-label sound-label">효과음 줄이기:</span>
-                        <input type="range" id="sound-volume" min="0" max="100" step="1" value="80">
-                        <span id="sound-volume-value">80%</span>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
 
     {% if user and user.is_authenticated %}
+    <div id="sound-controls">
+        <div class="sound-control-item">
+            <span class="time-label sound-label">효과음 선택:</span>
+            <select id="sound-profile">
+                {% for s in (beep_sound_options or []) %}
+                <option value="{{ s.key|e }}">{{ s.label }}</option>
+                {% endfor %}
+            </select>
+            <span class="time-label sound-label">효과음 줄이기:</span>
+            <input type="range" id="sound-volume" min="0" max="100" step="1" value="80">
+            <span id="sound-volume-value">80%</span>
+        </div>
+    </div>
     <div id="operator-dashboard-wrap">
         <h2>운영자 대시보드 · 이벤트 / 명단 / 사은품</h2>
         <p style="color:#666;font-size:0.9em;margin:0 0 16px;">명단: 한 줄에 <strong>별명 숫자</strong> 또는 CSV(별명,숫자). <strong>새 이벤트로 등록</strong>은 DB에 쓰지 않고 폼만 비우고 새 ID만 잡습니다. 실제 반영은 맨 아래 <strong>저장</strong> 한 번(수정도 동일)입니다. <strong>히스토리</strong>는 지난 회차 불러오기, <strong>일시</strong>는 상단 제목 옆 표시에 쓰입니다.</p>

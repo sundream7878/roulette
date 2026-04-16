@@ -6,6 +6,7 @@ import copy
 import unicodedata
 import random
 import datetime
+from urllib.parse import quote
 
 from flask import Flask, render_template, send_from_directory, request, jsonify, Blueprint, redirect, url_for, flash
 from flask_cors import CORS
@@ -580,16 +581,16 @@ def index():
                 if str(fname).lower() == "fanfare.mp3":
                     continue
                 key = str(fname)
-                label = os.path.splitext(str(fname))[0]
+                label = key
                 beep_sound_options.append({
                     "key": key,
                     "label": label,
-                    "url": f"/static/{key}",
+                    "url": f"/static/{quote(key)}",
                 })
     except Exception as e:
         print(f"DEBUG: [beep_sound_options] {e}")
     if not beep_sound_options:
-        beep_sound_options = [{"key": "beep.mp3", "label": "beep", "url": "/static/beep.mp3"}]
+        beep_sound_options = [{"key": "beep.mp3", "label": "beep.mp3", "url": "/static/beep.mp3"}]
 
     if current_user.is_authenticated:
         supabase_rt_url = os.getenv('SUPABASE_URL', '') or ''

@@ -427,6 +427,15 @@
             color: #555;
             font-weight: 600;
         }
+        #sound-profile {
+            min-width: 130px;
+            padding: 5px 8px;
+            border: 1px solid #cfcfcf;
+            border-radius: 6px;
+            background: #fff;
+            color: #444;
+            font-size: 0.9em;
+        }
 
         .time-label {
             font-weight: bold;
@@ -1068,6 +1077,15 @@
         {% endif %}
         <div id="sound-controls">
             <div class="sound-control-item">
+                {% if user.is_authenticated %}
+                <span class="time-label sound-label">효과음 선택:</span>
+                <select id="sound-profile">
+                    <option value="beep">기본 비프</option>
+                    <option value="chime">차임</option>
+                    <option value="wood">우드 톤</option>
+                    <option value="soft">소프트 톤</option>
+                </select>
+                {% endif %}
                 <span class="time-label sound-label">효과음 줄이기:</span>
                 <input type="range" id="sound-volume" min="0" max="100" step="1" value="80">
                 <span id="sound-volume-value">80%</span>
@@ -2576,6 +2594,13 @@
         let currentRoundId = '';
         let lastFanfareRoundId = '';
         const SOUND_VOLUME_STORAGE_KEY = 'roulette_sound_volume';
+        const SOUND_PROFILE_STORAGE_KEY = 'roulette_sound_profile';
+        const BEEP_SOUND_OPTIONS = {
+            beep: '/static/beep.mp3',
+            chime: '/static/chime.mp3',
+            wood: '/static/wood.mp3',
+            soft: '/static/soft.mp3'
+        };
 
         function clampSoundVolume(v) {
             var n = Number(v);
@@ -2601,9 +2626,19 @@
                 try { localStorage.setItem(SOUND_VOLUME_STORAGE_KEY, String(soundVolume)); } catch (e) {}
             }
         }
+        function setSoundProfile(profileKey, persist) {
+            var key = String(profileKey || 'beep');
+            if (!Object.prototype.hasOwnProperty.call(BEEP_SOUND_OPTIONS, key)) key = 'beep';
+            beepSound = BEEP_SOUND_OPTIONS[key];
+            var sel = document.getElementById('sound-profile');
+            if (sel && sel.value !== key) sel.value = key;
+            if (persist) {
+                try { localStorage.setItem(SOUND_PROFILE_STORAGE_KEY, key); } catch (e) {}
+            }
+        }
         function initSoundControls() {
             var slider = document.getElementById('sound-volume');
-            if (!slider) return;
+            var profileSelect = document.getElementById('sound-profile');
             var saved = null;
             try { saved = localStorage.getItem(SOUND_VOLUME_STORAGE_KEY); } catch (e) {}
             if (saved !== null && saved !== undefined && saved !== '') {
@@ -2611,12 +2646,22 @@
             } else {
                 setSoundVolume(0.8, false);
             }
-            slider.addEventListener('input', function () {
-                setSoundVolume(Number(slider.value) / 100, true);
-            });
-            slider.addEventListener('change', function () {
-                setSoundVolume(Number(slider.value) / 100, true);
-            });
+            var savedProfile = null;
+            try { savedProfile = localStorage.getItem(SOUND_PROFILE_STORAGE_KEY); } catch (e) {}
+            setSoundProfile(savedProfile || 'beep', false);
+            if (slider) {
+                slider.addEventListener('input', function () {
+                    setSoundVolume(Number(slider.value) / 100, true);
+                });
+                slider.addEventListener('change', function () {
+                    setSoundVolume(Number(slider.value) / 100, true);
+                });
+            }
+            if (profileSelect) {
+                profileSelect.addEventListener('change', function () {
+                    setSoundProfile(profileSelect.value, true);
+                });
+            }
         }
 
         // 색상 변환 도우미 함수
@@ -2699,7 +2744,9 @@
         function loadSounds() {
             console.log("오디오 파일 로딩 시도");
 
-            beepSound = '/static/beep.mp3';
+            setSoundProfile((function () {
+                try { return localStorage.getItem(SOUND_PROFILE_STORAGE_KEY) || 'beep'; } catch (e) { return 'beep'; }
+            })(), false);
             fanfareSound = '/static/fanfare.mp3';
 
             console.log("소리 파일 설정 완료:", {
@@ -2720,6 +2767,20 @@
                 beepAudio.volume = soundVolume;
                 beepAudio.play().catch(err => {
                     console.error("비프음 재생 실패:", err);
+                    if (beepSound !== BEEP_SOUND_OPTIONS.beep) {
+                        // 선택 음원이 없거나 재생 실패 시 기본 비프로 자동 폴백
+                        setSoundProfile('beep', true);
+                        try {
+                            beepAudio = new Audio(beepSound);
+                            beepAudio.loop = true;
+                            beepAudio.volume = soundVolume;
+                            beepAudio.play().catch(function (err2) {
+                                console.error("기본 비프 재생도 실패:", err2);
+                            });
+                        } catch (e2) {
+                            console.error("기본 비프 폴백 중 오류:", e2);
+                        }
+                    }
                 });
             } catch (e) {
                 console.error("비프음 시작 중 오류:", e);

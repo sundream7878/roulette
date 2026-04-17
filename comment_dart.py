@@ -141,6 +141,31 @@ def _event_at_input_local_value(iso_str):
     return ""
 
 
+def _build_beep_sound_options():
+    """static 폴더의 비프음(mp3) 선택 목록을 생성."""
+    beep_sound_options = []
+    try:
+        static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+        if os.path.isdir(static_dir):
+            for fname in sorted(os.listdir(static_dir), key=lambda x: str(x).casefold()):
+                if not str(fname).lower().endswith(".mp3"):
+                    continue
+                # 팡파레는 당첨 사운드로 별도 관리
+                if str(fname).lower() == "fanfare.mp3":
+                    continue
+                key = str(fname)
+                beep_sound_options.append({
+                    "key": key,
+                    "label": key,
+                    "url": f"/static/{quote(key)}",
+                })
+    except Exception as e:
+        print(f"DEBUG: [beep_sound_options] {e}")
+    if not beep_sound_options:
+        beep_sound_options = [{"key": "beep.mp3", "label": "beep.mp3", "url": "/static/beep.mp3"}]
+    return beep_sound_options
+
+
 def get_active_url():
     """현재 활성화된 이벤트 URL을 가져옵니다."""
     global _LAST_ACTIVE_EVENT_KEY
@@ -380,6 +405,7 @@ def guest_view():
         all_confirmed_set |= set(won_names)
     supabase_rt_url = os.getenv('SUPABASE_URL', '') or ''
     supabase_rt_anon_key = os.getenv('SUPABASE_ANON_KEY', '') or ''
+    beep_sound_options = _build_beep_sound_options()
 
     return render_template('index.html',
                            participants=p_list,
@@ -397,6 +423,7 @@ def guest_view():
                            allowed_info=allowed_info,
                            allowed_list_text="",
                            allow_duplicates_dash=allow_duplicates_dash,
+                           beep_sound_options=beep_sound_options,
                            supabase_rt_url=supabase_rt_url,
                            supabase_rt_anon_key=supabase_rt_anon_key,
                            roulette_closed_message=_roulette_closed_message_for_event(active_url, title))
@@ -570,27 +597,7 @@ def index():
         except Exception:
             pass
 
-    beep_sound_options = []
-    try:
-        static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-        if os.path.isdir(static_dir):
-            for fname in sorted(os.listdir(static_dir), key=lambda x: str(x).casefold()):
-                if not str(fname).lower().endswith(".mp3"):
-                    continue
-                # 팡파레는 당첨 사운드로 별도 관리하므로 기본 효과음 목록에서 제외
-                if str(fname).lower() == "fanfare.mp3":
-                    continue
-                key = str(fname)
-                label = key
-                beep_sound_options.append({
-                    "key": key,
-                    "label": label,
-                    "url": f"/static/{quote(key)}",
-                })
-    except Exception as e:
-        print(f"DEBUG: [beep_sound_options] {e}")
-    if not beep_sound_options:
-        beep_sound_options = [{"key": "beep.mp3", "label": "beep.mp3", "url": "/static/beep.mp3"}]
+    beep_sound_options = _build_beep_sound_options()
 
     if current_user.is_authenticated:
         supabase_rt_url = os.getenv('SUPABASE_URL', '') or ''

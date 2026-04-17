@@ -19,17 +19,9 @@
             align-items: center;
             width: 100vw;
             overflow-x: hidden;
-            overflow-y: auto;
+            overflow-y: scroll;
+            scrollbar-gutter: stable;
             box-sizing: border-box;
-        }
-
-        body.guest-theme {
-            background-color: #151127;
-            background-image: url('/static/screen.png');
-            background-size: cover;
-            background-position: center center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
         }
 
         * {
@@ -814,18 +806,21 @@
         .prize-item.drawing-active {
             position: relative;
             background: linear-gradient(90deg, #ffffff 0%, #e8f5e9 50%, #ffffff 100%);
+            border: 2px solid #4CAF50;
             border-radius: 8px;
-            margin: 10px 0;
-            box-shadow: inset 0 0 0 2px #4CAF50, 0 0 15px rgba(76, 175, 80, 0.4);
+            padding: 8px 12px;
+            margin: 12px 0;
+            box-shadow: 0 0 15px rgba(76, 175, 80, 0.4);
             animation: prize-pulse 1.5s infinite ease-in-out;
             z-index: 5;
-            transition: box-shadow 0.3s ease, background 0.3s ease;
+            transform: scale(1.01);
+            transition: all 0.3s ease;
         }
 
         .prize-item.drawing-active::before {
             content: '🎲 추첨 중...';
             position: absolute;
-            top: 6px;
+            top: -12px;
             right: 10px;
             background-color: #4CAF50;
             color: white;
@@ -839,15 +834,18 @@
 
         @keyframes prize-pulse {
             0% {
-                box-shadow: inset 0 0 0 2px #4CAF50, 0 0 5px rgba(76, 175, 80, 0.4);
+                box-shadow: 0 0 5px rgba(76, 175, 80, 0.4);
+                transform: scale(1.005);
             }
 
             50% {
-                box-shadow: inset 0 0 0 2px #4CAF50, 0 0 20px rgba(76, 175, 80, 0.7);
+                box-shadow: 0 0 20px rgba(76, 175, 80, 0.7);
+                transform: scale(1.015);
             }
 
             100% {
-                box-shadow: inset 0 0 0 2px #4CAF50, 0 0 5px rgba(76, 175, 80, 0.4);
+                box-shadow: 0 0 5px rgba(76, 175, 80, 0.4);
+                transform: scale(1.005);
             }
         }
 
@@ -1091,7 +1089,7 @@
     <link rel="icon" href="data:,">
 </head>
 
-<body class="{% if not (user and user.is_authenticated) %}guest-theme{% endif %}">
+<body>
     <div id="roulette-loading-overlay" aria-live="polite" aria-busy="false" role="status">
         <div id="roulette-loading-card">
             <div class="spinner" aria-hidden="true"></div>
@@ -1168,10 +1166,10 @@
             <div id="pointer"></div>
             <div id="rotating-container">
                 <canvas id="dart-chart"></canvas>
-            </div>
-            <div id="wheel-center-badge">
-                <img src="/static/staticthe_last_click.png" alt="룰렛 중앙 이미지"
-                    onerror="this.parentElement.classList.add('is-hidden')">
+                <div id="wheel-center-badge">
+                    <img src="/static/staticthe_last_click.png" alt="룰렛 중앙 이미지"
+                        onerror="this.parentElement.classList.add('is-hidden')">
+                </div>
             </div>
             <div id="winner-overlay">
                 <span id="winner-name-v2"></span>

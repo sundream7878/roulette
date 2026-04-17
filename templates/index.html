@@ -281,6 +281,28 @@
             /* 디버깅용 배경색 추가 */
         }
 
+        #wheel-outer-art {
+            position: absolute;
+            inset: -9%;
+            border-radius: 50%;
+            overflow: hidden;
+            z-index: 1;
+            pointer-events: none;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+        }
+
+        #wheel-outer-art img {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: cover;
+            object-position: center;
+        }
+
+        #wheel-outer-art.is-hidden {
+            display: none;
+        }
+
         #rotating-container {
             width: 100%;
             height: 100%;
@@ -290,6 +312,7 @@
             transform-origin: 50% 50%;
             transition: none;
             background-color: transparent;
+            z-index: 3;
             /* 디버깅용 배경색 추가 */
         }
 
@@ -337,7 +360,7 @@
             border-left: 20px solid transparent;
             border-right: 20px solid transparent;
             border-top: 30px solid red;
-            z-index: 10;
+            z-index: 12;
         }
 
         #legend-container {
@@ -1162,6 +1185,10 @@
 
     <div id="main-container">
         <div id="chart-container">
+            <div id="wheel-outer-art">
+                <img src="/static/staticthe_needle_s_verdict.png" alt="룰렛 외곽 배경 이미지"
+                    onerror="this.parentElement.classList.add('is-hidden')">
+            </div>
             <div id="pointer"></div>
             <div id="rotating-container">
                 <canvas id="dart-chart"></canvas>

@@ -2638,6 +2638,7 @@
         let fanfareSound = null;
         let beepLoopInterval = null;
         let beepAudio = null;
+        let beepPlayToken = 0; // 지연된 오디오 콜백이 최신 재생 상태를 덮지 않도록 보호
         let soundVolume = 0.8;
         let currentRoundId = '';
         let lastFanfareRoundId = '';
@@ -2695,7 +2696,6 @@
         }
         function setSoundProfile(profileKey, persist) {
             var key = String(profileKey || DEFAULT_BEEP_SOUND_KEY);
-            if (!Object.prototype.hasOwnProperty.call(BEEP_SOUND_OPTIONS, key)) key = 'beep';
             if (!Object.prototype.hasOwnProperty.call(BEEP_SOUND_OPTIONS, key)) key = DEFAULT_BEEP_SOUND_KEY;
             beepSound = BEEP_SOUND_OPTIONS[key];
             var sel = document.getElementById('sound-profile');
@@ -2703,6 +2703,12 @@
             if (persist) {
                 try { localStorage.setItem(SOUND_PROFILE_STORAGE_KEY, key); } catch (e) {}
             }
+        }
+        function setSoundProfileDisabled(disabled) {
+            var sel = document.getElementById('sound-profile');
+            if (!sel) return;
+            sel.disabled = !!disabled;
+            sel.title = disabled ? '룰렛 진행 중에는 효과음을 변경할 수 없습니다.' : '';
         }
         function initSoundControls() {
             var sliders = [
@@ -2733,6 +2739,7 @@
                     setSoundProfile(profileSelect.value, true);
                 });
             }
+            setSoundProfileDisabled(!!gameIsActive);
         }
 
         // 색상 변환 도우미 함수
@@ -2829,23 +2836,30 @@
         // 비프음 재생 함수
         function startBeepLoop() {
             stopBeepLoop();
+            const token = beepPlayToken;
 
             console.log("비프음 재생 시작");
 
             try {
-                beepAudio = new Audio(beepSound);
-                beepAudio.loop = true;
-                beepAudio.volume = soundVolume;
-                beepAudio.play().catch(err => {
+                const selectedSound = beepSound;
+                const audio = new Audio(selectedSound);
+                beepAudio = audio;
+                audio.loop = true;
+                audio.volume = soundVolume;
+                audio.play().catch(err => {
+                    if (token !== beepPlayToken || beepAudio !== audio) return;
                     console.error("비프음 재생 실패:", err);
-                    if (beepSound !== BEEP_SOUND_OPTIONS[DEFAULT_BEEP_SOUND_KEY]) {
+                    const defaultSound = BEEP_SOUND_OPTIONS[DEFAULT_BEEP_SOUND_KEY];
+                    if (selectedSound !== defaultSound) {
                         // 선택 음원이 없거나 재생 실패 시 기본 비프로 자동 폴백
                         setSoundProfile(DEFAULT_BEEP_SOUND_KEY, true);
                         try {
-                            beepAudio = new Audio(beepSound);
-                            beepAudio.loop = true;
-                            beepAudio.volume = soundVolume;
-                            beepAudio.play().catch(function (err2) {
+                            const fallbackAudio = new Audio(defaultSound);
+                            beepAudio = fallbackAudio;
+                            fallbackAudio.loop = true;
+                            fallbackAudio.volume = soundVolume;
+                            fallbackAudio.play().catch(function (err2) {
+                                if (token !== beepPlayToken || beepAudio !== fallbackAudio) return;
                                 console.error("기본 비프 재생도 실패:", err2);
                             });
                         } catch (e2) {
@@ -2861,6 +2875,7 @@
         // 비프음 중지 함수
         function stopBeepLoop() {
             console.log("비프음 중지 시도");
+            beepPlayToken += 1;
 
             if (beepAudio) {
                 try {
@@ -3350,6 +3365,7 @@
                 }
                 gameIsActive = true; // 룰릿 회전 중 → 자동 새로고침 및 UI 갱신 안 함
                 window._gameIsActive = true;
+                setSoundProfileDisabled(true);
                 if (document.getElementById('start-button')) {
                     document.getElementById('start-button').disabled = true;
                     document.getElementById('start-button').innerText = '진행 중...';
@@ -3554,6 +3570,7 @@
                 }
                 gameIsActive = false; // 게임 종료 → 이제 자동 새로고침 허용
                 window._gameIsActive = false;
+                setSoundProfileDisabled(false);
                 stopAllSounds();
 
                 // [추가] 당첨자 결정 시 사은품 강조 효과 제거
@@ -3680,6 +3697,7 @@
                     if (typeof hideRouletteLoading === 'function') hideRouletteLoading();
                 }
                 stopAllSounds();
+                setSoundProfileDisabled(false);
 
                 alert(data.message);
                 if (window._rouletteEventClosed) {
@@ -3723,6 +3741,7 @@
                 }
                 gameIsActive = false; // 리셋 → 자동 새로고침 허용
                 window._gameIsActive = false;
+                setSoundProfileDisabled(false);
                 console.log("게임 리셋 완료");
                 document.getElementById('rotating-container').style.transform = 'rotate(0deg)';
                 document.getElementById('winner').innerText = '';
@@ -3802,6 +3821,7 @@
                         });
                     }
                 } catch (e) {}
+                setSoundProfileDisabled(!!(data && data.is_running));
 
                 // 1. 이벤트 데이터 동기화 (게스트 및 초기 접속자용)
                 if (data.event_data && !window._operatorDraftMode) {

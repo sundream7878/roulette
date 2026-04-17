@@ -2639,6 +2639,7 @@
         let beepLoopInterval = null;
         let beepAudio = null;
         let beepPlayToken = 0; // 지연된 오디오 콜백이 최신 재생 상태를 덮지 않도록 보호
+        let currentBeepProfileKey = '';
         let soundVolume = 0.8;
         let currentRoundId = '';
         let lastFanfareRoundId = '';
@@ -2697,12 +2698,16 @@
         function setSoundProfile(profileKey, persist) {
             var key = String(profileKey || DEFAULT_BEEP_SOUND_KEY);
             if (!Object.prototype.hasOwnProperty.call(BEEP_SOUND_OPTIONS, key)) key = DEFAULT_BEEP_SOUND_KEY;
+            currentBeepProfileKey = key;
             beepSound = BEEP_SOUND_OPTIONS[key];
             var sel = document.getElementById('sound-profile');
             if (sel && sel.value !== key) sel.value = key;
             if (persist) {
                 try { localStorage.setItem(SOUND_PROFILE_STORAGE_KEY, key); } catch (e) {}
             }
+        }
+        function isSoundSelectionLocked() {
+            return !!(gameIsActive || startRequestInFlight);
         }
         function setSoundProfileDisabled(disabled) {
             var sel = document.getElementById('sound-profile');
@@ -2736,10 +2741,14 @@
             });
             if (profileSelect) {
                 profileSelect.addEventListener('change', function () {
+                    if (isSoundSelectionLocked()) {
+                        if (profileSelect.value !== currentBeepProfileKey) profileSelect.value = currentBeepProfileKey;
+                        return;
+                    }
                     setSoundProfile(profileSelect.value, true);
                 });
             }
-            setSoundProfileDisabled(!!gameIsActive);
+            setSoundProfileDisabled(isSoundSelectionLocked());
         }
 
         // 색상 변환 도우미 함수
@@ -2849,23 +2858,8 @@
                 audio.play().catch(err => {
                     if (token !== beepPlayToken || beepAudio !== audio) return;
                     console.error("비프음 재생 실패:", err);
-                    const defaultSound = BEEP_SOUND_OPTIONS[DEFAULT_BEEP_SOUND_KEY];
-                    if (selectedSound !== defaultSound) {
-                        // 선택 음원이 없거나 재생 실패 시 기본 비프로 자동 폴백
-                        setSoundProfile(DEFAULT_BEEP_SOUND_KEY, true);
-                        try {
-                            const fallbackAudio = new Audio(defaultSound);
-                            beepAudio = fallbackAudio;
-                            fallbackAudio.loop = true;
-                            fallbackAudio.volume = soundVolume;
-                            fallbackAudio.play().catch(function (err2) {
-                                if (token !== beepPlayToken || beepAudio !== fallbackAudio) return;
-                                console.error("기본 비프 재생도 실패:", err2);
-                            });
-                        } catch (e2) {
-                            console.error("기본 비프 폴백 중 오류:", e2);
-                        }
-                    }
+                    // 자동 기본 beep 폴백은 중복음 오해를 유발할 수 있어 제거
+                    stopBeepLoop();
                 });
             } catch (e) {
                 console.error("비프음 시작 중 오류:", e);
@@ -3130,6 +3124,7 @@
             startRequestInFlight = true;
             startBtn.disabled = true;
             startBtn.innerText = '시작 요청 중...';
+            setSoundProfileDisabled(true);
             if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(true);
 
             stopAllSounds();
@@ -3140,6 +3135,7 @@
                 startRequestInFlight = false;
                 startBtn.disabled = false;
                 startBtn.innerText = '시작';
+                setSoundProfileDisabled(false);
                 if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                 return;
             }
@@ -3150,6 +3146,7 @@
                 startRequestInFlight = false;
                 startBtn.disabled = false;
                 startBtn.innerText = '시작';
+                setSoundProfileDisabled(false);
                 if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                 return;
             }
@@ -3165,6 +3162,7 @@
                 startRequestInFlight = false;
                 startBtn.disabled = false;
                 startBtn.innerText = '시작';
+                setSoundProfileDisabled(false);
                 if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                 return;
             }
@@ -3189,6 +3187,7 @@
                     btn.disabled = false;
                     btn.innerText = '시작';
                 }
+                setSoundProfileDisabled(false);
                 if (typeof setTimeAdjustButtonsDisabled === 'function') setTimeAdjustButtonsDisabled(false);
                 if (targetTimeInput) targetTimeInput.disabled = false;
             }, 5000);
@@ -3821,7 +3820,7 @@
                         });
                     }
                 } catch (e) {}
-                setSoundProfileDisabled(!!(data && data.is_running));
+                setSoundProfileDisabled(!!((data && data.is_running) || startRequestInFlight));
 
                 // 1. 이벤트 데이터 동기화 (게스트 및 초기 접속자용)
                 if (data.event_data && !window._operatorDraftMode) {

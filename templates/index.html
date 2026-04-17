@@ -438,6 +438,49 @@
             color: #444;
             font-size: 0.9em;
         }
+        .guest-time-wrap {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .guest-time-badges {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+            flex: 1 1 560px;
+        }
+        #guest-sound-controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid #d8d8d8;
+            background: rgba(255, 255, 255, 0.9);
+            flex: 0 0 auto;
+        }
+        #guest-sound-label {
+            font-size: 0.86em;
+            font-weight: 700;
+            color: #555;
+            white-space: nowrap;
+        }
+        #guest-sound-volume {
+            width: 90px;
+            accent-color: #4CAF50;
+        }
+        #guest-sound-volume-value {
+            min-width: 34px;
+            text-align: right;
+            font-size: 0.82em;
+            color: #555;
+            font-weight: 600;
+        }
 
         .time-label {
             font-weight: bold;
@@ -1056,8 +1099,8 @@
         {% else %}
         <!-- 게스트 모드용 시간 표시 -->
         <div id="time-controls" class="guest-mode">
-            <div
-                style="width: 100%; display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 20px;">
+            <div class="guest-time-wrap">
+                <div class="guest-time-badges">
                 <div class="time-control-item"
                     style="background-color: rgba(76, 175, 80, 0.2); padding: 8px 15px; border-radius: 8px; border: 1px solid #4CAF50;">
                     <span class="time-label" style="color: #2e7d32;">슈팅시간:</span>
@@ -1073,6 +1116,12 @@
                     style="background-color: rgba(33, 150, 243, 0.2); padding: 8px 15px; border-radius: 8px; border: 1px solid #1E88E5;">
                     <span class="time-label" style="color: #1565c0;">현재시간:</span>
                     <span id="guest-current-time" class="time-value" style="font-weight: bold;"></span>
+                </div>
+                </div>
+                <div id="guest-sound-controls">
+                    <span id="guest-sound-label">효과음 줄이기</span>
+                    <input type="range" id="guest-sound-volume" min="0" max="100" step="1" value="80">
+                    <span id="guest-sound-volume-value">80%</span>
                 </div>
             </div>
         </div>
@@ -2625,11 +2674,21 @@
         function setSoundVolume(v, persist) {
             soundVolume = clampSoundVolume(v);
             applySoundVolumeToPlaying();
-            var slider = document.getElementById('sound-volume');
-            var valEl = document.getElementById('sound-volume-value');
             var pct = Math.round(soundVolume * 100);
-            if (slider && String(slider.value) !== String(pct)) slider.value = String(pct);
-            if (valEl) valEl.textContent = pct + '%';
+            var sliders = [
+                document.getElementById('sound-volume'),
+                document.getElementById('guest-sound-volume')
+            ];
+            var valueEls = [
+                document.getElementById('sound-volume-value'),
+                document.getElementById('guest-sound-volume-value')
+            ];
+            sliders.forEach(function (slider) {
+                if (slider && String(slider.value) !== String(pct)) slider.value = String(pct);
+            });
+            valueEls.forEach(function (valEl) {
+                if (valEl) valEl.textContent = pct + '%';
+            });
             if (persist) {
                 try { localStorage.setItem(SOUND_VOLUME_STORAGE_KEY, String(soundVolume)); } catch (e) {}
             }
@@ -2646,7 +2705,10 @@
             }
         }
         function initSoundControls() {
-            var slider = document.getElementById('sound-volume');
+            var sliders = [
+                document.getElementById('sound-volume'),
+                document.getElementById('guest-sound-volume')
+            ].filter(Boolean);
             var profileSelect = document.getElementById('sound-profile');
             var saved = null;
             try { saved = localStorage.getItem(SOUND_VOLUME_STORAGE_KEY); } catch (e) {}
@@ -2658,14 +2720,14 @@
             var savedProfile = null;
             try { savedProfile = localStorage.getItem(SOUND_PROFILE_STORAGE_KEY); } catch (e) {}
             setSoundProfile(savedProfile || DEFAULT_BEEP_SOUND_KEY, false);
-            if (slider) {
+            sliders.forEach(function (slider) {
                 slider.addEventListener('input', function () {
                     setSoundVolume(Number(slider.value) / 100, true);
                 });
                 slider.addEventListener('change', function () {
                     setSoundVolume(Number(slider.value) / 100, true);
                 });
-            }
+            });
             if (profileSelect) {
                 profileSelect.addEventListener('change', function () {
                     setSoundProfile(profileSelect.value, true);

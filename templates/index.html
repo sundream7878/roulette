@@ -3174,7 +3174,10 @@
             const formattedTime = `${utcHours}:${utcMins}:${utcSecs}`;
 
             console.log('Emitting start_rotation with UTC time:', formattedTime);
-            socket.emit('start_rotation', { time: formattedTime });
+            socket.emit('start_rotation', {
+                time: formattedTime,
+                sound_profile: currentBeepProfileKey || DEFAULT_BEEP_SOUND_KEY
+            });
             if (startRequestTimeout) clearTimeout(startRequestTimeout);
             startRequestTimeout = setTimeout(function () {
                 if (!startRequestInFlight) return;
@@ -3334,6 +3337,9 @@
 
             socket.on('start_game', function (data) {
                 console.log('게임 시작:', data);
+                if (data && data.sound_profile) {
+                    setSoundProfile(String(data.sound_profile), false);
+                }
                 const networkLagCompMs = computeNetworkLagCompMs((data && data.sent_unix_ms) || 0);
                 try {
                     var recvMs = Date.now();
@@ -3718,8 +3724,11 @@
                 if (targetTimeInput) targetTimeInput.disabled = false;
             });
 
-            socket.on('play_beep', function () {
+            socket.on('play_beep', function (data) {
                 console.log("비프음 재생 요청 수신");
+                if (data && data.sound_profile) {
+                    setSoundProfile(String(data.sound_profile), false);
+                }
 
                 const targetTimeInput = document.getElementById('target-time');
                 const isInputFocused = targetTimeInput && document.activeElement === targetTimeInput;
@@ -3802,6 +3811,9 @@
             });
             socket.on('game_status', function (data) {
                 console.log('게임 상태 수신:', data);
+                if (data && data.sound_profile) {
+                    setSoundProfile(String(data.sound_profile), false);
+                }
                 try {
                     var recvMs2 = Date.now();
                     var sentMs2 = Number((data && data.sent_unix_ms) || 0);

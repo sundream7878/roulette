@@ -17,9 +17,9 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            width: 100vw;
+            width: 100%;
             overflow-x: hidden;
-            overflow-y: scroll;
+            overflow-y: auto;
             scrollbar-gutter: stable;
             box-sizing: border-box;
         }
@@ -806,21 +806,18 @@
         .prize-item.drawing-active {
             position: relative;
             background: linear-gradient(90deg, #ffffff 0%, #e8f5e9 50%, #ffffff 100%);
-            border: 2px solid #4CAF50;
             border-radius: 8px;
-            padding: 8px 12px;
-            margin: 12px 0;
-            box-shadow: 0 0 15px rgba(76, 175, 80, 0.4);
+            margin: 10px 0;
+            box-shadow: inset 0 0 0 2px #4CAF50, 0 0 15px rgba(76, 175, 80, 0.4);
             animation: prize-pulse 1.5s infinite ease-in-out;
             z-index: 5;
-            transform: scale(1.01);
-            transition: all 0.3s ease;
+            transition: box-shadow 0.3s ease, background 0.3s ease;
         }
 
         .prize-item.drawing-active::before {
             content: '🎲 추첨 중...';
             position: absolute;
-            top: -12px;
+            top: 6px;
             right: 10px;
             background-color: #4CAF50;
             color: white;
@@ -834,18 +831,45 @@
 
         @keyframes prize-pulse {
             0% {
-                box-shadow: 0 0 5px rgba(76, 175, 80, 0.4);
-                transform: scale(1.005);
+                box-shadow: inset 0 0 0 2px #4CAF50, 0 0 5px rgba(76, 175, 80, 0.4);
             }
 
             50% {
-                box-shadow: 0 0 20px rgba(76, 175, 80, 0.7);
-                transform: scale(1.015);
+                box-shadow: inset 0 0 0 2px #4CAF50, 0 0 20px rgba(76, 175, 80, 0.7);
             }
 
             100% {
-                box-shadow: 0 0 5px rgba(76, 175, 80, 0.4);
-                transform: scale(1.005);
+                box-shadow: inset 0 0 0 2px #4CAF50, 0 0 5px rgba(76, 175, 80, 0.4);
+            }
+        }
+
+        @media (max-width: 768px) {
+            #time-controls.guest-mode {
+                padding: 8px 10px;
+            }
+
+            .guest-time-wrap {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 8px;
+            }
+
+            .guest-time-badges {
+                flex: 1 1 auto;
+                width: 100%;
+                gap: 8px;
+                justify-content: flex-start;
+            }
+
+            .guest-time-badges .time-control-item {
+                margin: 0;
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            #guest-sound-controls {
+                width: 100%;
+                justify-content: center;
             }
         }
 

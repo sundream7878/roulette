@@ -3900,7 +3900,13 @@
                         if (prizeListEl) {
                             if (ed.prizes !== undefined) {
                                 var nextPr = (ed.prizes === null || ed.prizes === undefined) ? '' : String(ed.prizes);
-                                prizeListEl.dataset.prizes = nextPr;
+                                var currPr = String(prizeListEl.dataset.prizes || '');
+                                // 진행 중 순간 빈 payload가 들어와도 기존 사은품 목록을 지우지 않는다.
+                                if (!(data && data.is_running && !nextPr.trim() && currPr.trim())) {
+                                    prizeListEl.dataset.prizes = nextPr;
+                                } else {
+                                    console.log('[Socket] game_status empty prizes ignored during running');
+                                }
                             }
                             if (ed.winners !== undefined && shouldApplyIncomingWinners(ed.winners, prizeListEl.dataset.winners || '')) {
                                 prizeListEl.dataset.winners = ed.winners || '';
@@ -3929,19 +3935,42 @@
 
                     if (Array.isArray(ed.participant_display_list)) {
                         var existingRows = document.querySelectorAll('#all-participants-container .all-participant-item').length;
+                        var suppressEmptyDisplayList = !!(
+                            data && data.is_running &&
+                            existingRows > 0 &&
+                            ed.participant_display_list.length === 0
+                        );
                         // 기존 화면 순서는 유지하고 체크 상태만 갱신 (당첨자 위치 점프 방지)
                         // 단, 초기 진입/빈 상태일 때만 전체 목록 재구성
-                        if (existingRows === 0 || ed.participant_display_list.length === 0) {
+                        if (!suppressEmptyDisplayList && (existingRows === 0 || ed.participant_display_list.length === 0)) {
                             syncDomParticipantList(ed.participant_display_list, ed.confirmed_all);
-                        } else {
+                        } else if (!suppressEmptyDisplayList) {
                             updateConfirmedOnly(ed.confirmed_all, ed.participants || ed.participant_display_list);
+                        } else {
+                            console.log('[Socket] game_status empty participant_display_list ignored during running');
                         }
                     }
                     if (ed.participants !== undefined) {
                         if (window._holdWinnerChecksUntilNextStart) {
                             console.log('당첨 직후 홀드 상태: game_status 참가자 갱신 보류');
                         } else {
-                        updateParticipantsUI(ed.participants, null, ed.confirmed_all);
+                            var hasChartData = !!(
+                                chart &&
+                                chart.data &&
+                                Array.isArray(chart.data.labels) &&
+                                chart.data.labels.length > 0
+                            );
+                            var suppressEmptyParticipants = !!(
+                                data && data.is_running &&
+                                Array.isArray(ed.participants) &&
+                                ed.participants.length === 0 &&
+                                hasChartData
+                            );
+                            if (!suppressEmptyParticipants) {
+                                updateParticipantsUI(ed.participants, null, ed.confirmed_all);
+                            } else {
+                                console.log('[Socket] game_status empty participants ignored during running');
+                            }
                         }
                     }
 
@@ -4326,7 +4355,9 @@
 
                 const isPrizesExhausted = (pList.length > 0 && wList.length >= pList.length);
 
-                if (pList.length === 0 && wList.length > 0) {
+                if (pList.length === 0 && wList.length === 0) {
+                    prizeListEl.innerHTML = '<div class="prize-item" style="color: #999;">등록된 사은품이 없습니다.</div>';
+                } else if (pList.length === 0 && wList.length > 0) {
                     // 사은품은 없는데 당첨자만 있는 경우 (목록 표시)
                     prizeListEl.innerHTML = wList.map(name => `<div class="prize-item"><span>당첨자: <strong style="color: #1a73e8;">${name}님</strong></span></div>`).join('');
                 } else {

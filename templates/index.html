@@ -9,8 +9,9 @@
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js"></script>
     <style>
-        /* Chrome 등에서 문서 높이가 뷰포트 근처에서 변동할 때 루트 스크롤바가 생겼다/사라졌다 토글되며 화면이 껌뻑이는 현상을 막는다. */
+        /* 루트 스크롤바 토글 + 100vw 혼용 시 가로로 밀리는 현상 방지 */
         html {
+            height: 100%;
             overflow-y: scroll;
             scrollbar-gutter: stable;
         }
@@ -24,6 +25,7 @@
             flex-direction: column;
             align-items: center;
             width: 100%;
+            min-height: 100%;
             overflow-x: hidden;
             /* html이 루트 스크롤을 담당하므로 body에 세로 스크롤을 두면 이중 스크롤바가 생긴다. */
             overflow-y: visible;
@@ -217,7 +219,7 @@
             background: #fff;
             border-radius: 16px;
             padding: 28px 32px;
-            max-width: 92vw;
+            max-width: min(380px, calc(100% - 24px));
             width: 380px;
             text-align: center;
             box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
@@ -359,26 +361,31 @@
                 align-items: center;
                 justify-content: flex-start;
                 padding: 12px;
-                max-width: 100vw;
+                max-width: 100%;
+                width: 100%;
+                box-sizing: border-box;
             }
 
             #chart-container {
-                width: min(92vw, 600px);
-                height: min(92vw, 600px);
+                width: min(100%, 600px);
+                aspect-ratio: 1;
+                height: auto;
                 flex: 0 0 auto;
             }
 
             #all-participants-container {
                 margin-left: 0;
                 margin-top: 14px;
-                width: min(92vw, 600px);
+                width: min(100%, 600px);
+                max-width: 100%;
                 max-height: 420px;
             }
 
             #prize-right-col {
                 margin-left: 0;
                 margin-top: 14px;
-                width: min(92vw, 600px);
+                width: min(100%, 600px);
+                max-width: 100%;
                 min-width: 0;
                 height: auto;
             }

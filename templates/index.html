@@ -25,8 +25,8 @@
             align-items: center;
             width: 100%;
             overflow-x: hidden;
-            overflow-y: auto;
-            scrollbar-gutter: stable;
+            /* html이 루트 스크롤을 담당하므로 body에 세로 스크롤을 두면 이중 스크롤바가 생긴다. */
+            overflow-y: visible;
             box-sizing: border-box;
         }
 

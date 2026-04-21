@@ -9,10 +9,10 @@
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js"></script>
     <style>
-        /* 루트 스크롤바 토글 + 100vw 혼용 시 가로로 밀리는 현상 방지 */
+        /* 루트: 스크롤 트랙 상시 → 가용 폭 고정 + margin:auto 중앙 정렬과 궁합 (재미니 safe centering) */
         html {
             height: 100%;
-            overflow-y: scroll;
+            overflow-y: scroll !important;
             scrollbar-gutter: stable;
         }
 
@@ -262,12 +262,13 @@
 
         #main-container {
             display: flex;
-            /* center: 루트 스크롤바 토글 시 가용 너비 변화 → 행 전체가 재중앙 정렬되며 가로 점프. */
+            /* 행 내부는 flex-start 유지(이전 점프 원인은 justify-content:center). 블록 자체는 margin으로 가운데. */
             justify-content: flex-start;
             align-items: flex-start;
+            align-self: center;
             padding: 20px;
-            max-width: 1600px;
-            width: 100%;
+            width: min(100%, 1600px);
+            margin: 0 auto;
             box-sizing: border-box;
             overflow-x: hidden;
             overflow-y: visible;

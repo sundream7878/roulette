@@ -9,6 +9,12 @@
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js"></script>
     <style>
+        /* Chrome 등에서 문서 높이가 뷰포트 근처에서 변동할 때 루트 스크롤바가 생겼다/사라졌다 토글되며 화면이 껌뻑이는 현상을 막는다. */
+        html {
+            overflow-y: scroll;
+            scrollbar-gutter: stable;
+        }
+
         body {
             font-family: Arial, sans-serif;
             background-color: #f0f0f0;

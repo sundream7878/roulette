@@ -23,7 +23,8 @@
             padding: 0;
             display: flex;
             flex-direction: column;
-            align-items: center;
+            /* center: 스크롤바 유무로 가용 폭이 바뀔 때 교차축 재정렬로 가로 밀림 체감. stretch로 통일. */
+            align-items: stretch;
             width: 100%;
             min-height: 100%;
             overflow-x: hidden;
@@ -261,11 +262,16 @@
 
         #main-container {
             display: flex;
-            justify-content: center;
+            /* center: 루트 스크롤바 토글 시 가용 너비 변화 → 행 전체가 재중앙 정렬되며 가로 점프. */
+            justify-content: flex-start;
             align-items: flex-start;
             padding: 20px;
             max-width: 1600px;
             width: 100%;
+            box-sizing: border-box;
+            overflow-x: hidden;
+            overflow-y: visible;
+            min-height: 0;
         }
 
         #prize-right-col {

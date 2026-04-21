@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+import unicodedata
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 
@@ -83,7 +84,31 @@ class CommentDatabase:
         self._commenter_has_id_col = False
         self._participant_has_created_at_col = False
         self._commenter_has_created_at_col = False
+        self._participant_id_sql_type = "int"
+        self._commenter_id_sql_type = "int"
         self._detect_schema_columns()
+
+    @staticmethod
+    def _norm_author_key(name: Any) -> str:
+        return unicodedata.normalize("NFC", str(name).strip())
+
+    def _infer_child_id_sql_type(self, table: str) -> str:
+        """id 컬럼 실제 타입 추정. 정수 PK면 신규 행에 UUID를 넣으면 안 됨(22P02)."""
+        try:
+            r = self.supabase.table(table).select("id").limit(1).execute()
+            row = (r.data or [None])[0]
+            if not row:
+                return "int"
+            v = row.get("id")
+            if isinstance(v, int) and not isinstance(v, bool):
+                return "int"
+            if isinstance(v, str) and len(v) == 36 and v.count("-") == 4:
+                return "uuid"
+            if v is not None:
+                return "uuid"
+        except Exception as e:
+            print(f"DEBUG: [infer id type {table}] {e}")
+        return "int"
 
     def _column_exists(self, table: str, column: str) -> bool:
         try:
@@ -118,6 +143,10 @@ class CommentDatabase:
         self._commenter_has_id_col = self._column_exists("commenters", "id")
         self._participant_has_created_at_col = self._column_exists("participants", "created_at")
         self._commenter_has_created_at_col = self._column_exists("commenters", "created_at")
+        if self._participant_has_id_col:
+            self._participant_id_sql_type = self._infer_child_id_sql_type("participants")
+        if self._commenter_has_id_col:
+            self._commenter_id_sql_type = self._infer_child_id_sql_type("commenters")
         print(
             "DEBUG: [Supabase schema] "
             f"posts.{self._post_key_col}, "
@@ -125,7 +154,9 @@ class CommentDatabase:
             f"commenters.{self._commenter_fk_col}, "
             f"posts_cols={self._post_opt_cols}, "
             f"participant_row_id={self._participant_has_id_col}, "
-            f"commenter_row_id={self._commenter_has_id_col}"
+            f"commenter_row_id={self._commenter_has_id_col}, "
+            f"participant_id_type={self._participant_id_sql_type}, "
+            f"commenter_id_type={self._commenter_id_sql_type}"
         )
 
     def _post_select_cols(self, extra: Optional[List[str]] = None) -> str:
@@ -356,7 +387,7 @@ class CommentDatabase:
                         a = pr.get("author")
                         if a is None:
                             continue
-                        sk = str(a)
+                        sk = self._norm_author_key(a)
                         if self._participant_has_id_col:
                             pid = pr.get("id")
                             if pid is not None:
@@ -375,19 +406,13 @@ class CommentDatabase:
                     "count": count,
                 }
                 if self._participant_has_id_col:
-                    pid = author_to_pid.get(str(author))
+                    pid = author_to_pid.get(self._norm_author_key(author))
                     if pid is not None:
                         row["id"] = pid
-                    elif author_to_pid and any(
-                        isinstance(x, int) and not isinstance(x, bool) for x in author_to_pid.values()
-                    ):
-                        # 정수 SERIAL PK: 신규 행은 id 생략(DB default/sequence 기대).
-                        pass
-                    else:
-                        # UUID 등 NOT NULL + default 없음 스키마: 클라이언트에서 id 부여.
+                    elif self._participant_id_sql_type == "uuid":
                         row["id"] = str(uuid.uuid4())
                 if self._participant_has_created_at_col:
-                    ct = author_to_ct.get(str(author))
+                    ct = author_to_ct.get(self._norm_author_key(author))
                     row["created_at"] = ct if ct is not None else datetime.now().isoformat()
                 p_batch.append(row)
             for i in range(0, len(p_batch), 500):
@@ -415,7 +440,7 @@ class CommentDatabase:
                         a = cr.get("author")
                         if a is None:
                             continue
-                        sk = str(a)
+                        sk = self._norm_author_key(a)
                         if self._commenter_has_id_col:
                             cid = cr.get("id")
                             if cid is not None:
@@ -430,17 +455,13 @@ class CommentDatabase:
                 name = item["name"] if isinstance(item, dict) else item
                 crow: Dict[str, Any] = {self._commenter_fk_col: event_id, "author": name}
                 if self._commenter_has_id_col:
-                    cid = name_to_cid.get(str(name))
+                    cid = name_to_cid.get(self._norm_author_key(name))
                     if cid is not None:
                         crow["id"] = cid
-                    elif name_to_cid and any(
-                        isinstance(x, int) and not isinstance(x, bool) for x in name_to_cid.values()
-                    ):
-                        pass
-                    else:
+                    elif self._commenter_id_sql_type == "uuid":
                         crow["id"] = str(uuid.uuid4())
                 if self._commenter_has_created_at_col:
-                    cct = name_to_c_ct.get(str(name))
+                    cct = name_to_c_ct.get(self._norm_author_key(name))
                     crow["created_at"] = cct if cct is not None else datetime.now().isoformat()
                 c_batch.append(crow)
             for i in range(0, len(c_batch), 1000):

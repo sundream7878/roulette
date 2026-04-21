@@ -37,6 +37,15 @@
             box-sizing: border-box;
         }
 
+        /* 헤더·컨트롤·메인을 한 블록으로 묶어 margin:auto 중앙 정렬 (flex 자식에 width:100%만 주면 가운데 안 잡힘) */
+        .layout-shell {
+            box-sizing: border-box;
+            width: min(100%, 1600px);
+            margin-left: auto;
+            margin-right: auto;
+            align-self: center;
+        }
+
         #header {
             position: relative;
             width: 100%;
@@ -262,13 +271,10 @@
 
         #main-container {
             display: flex;
-            /* 행 내부는 flex-start 유지(이전 점프 원인은 justify-content:center). 블록 자체는 margin으로 가운데. */
             justify-content: flex-start;
             align-items: flex-start;
-            align-self: center;
             padding: 20px;
-            width: min(100%, 1600px);
-            margin: 0 auto;
+            width: 100%;
             box-sizing: border-box;
             overflow-x: hidden;
             overflow-y: visible;
@@ -363,6 +369,14 @@
 
         /* 모바일/태블릿: 오른쪽 패널로 인한 원판 축 밀림 방지 */
         @media (max-width: 1200px) {
+            .layout-shell {
+                max-width: 100%;
+                width: 100%;
+                margin-left: 0;
+                margin-right: 0;
+                align-self: stretch;
+            }
+
             #main-container {
                 flex-direction: column;
                 align-items: center;
@@ -1138,6 +1152,7 @@
             <span id="roulette-loading-hint">버그가 아니라 서버와 동기화하는 시간입니다. 잠시만 기다려 주세요.</span>
         </div>
     </div>
+    <div class="layout-shell">
     <div id="header">
         <div class="header-title-row">
             <h1 id="event-title-display">{{ title if title else '썬드림 룰렛 추첨 이벤트' }}</h1>
@@ -1279,6 +1294,7 @@
             </div>
         </div>
     </div>
+    </div><!-- /.layout-shell -->
 
     {% if user and user.is_authenticated %}
     <div id="sound-controls">

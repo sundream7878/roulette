@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 
@@ -78,6 +79,8 @@ class CommentDatabase:
         self._post_has_url_col = False
         self._post_has_is_active_col = False
         self._post_opt_cols: List[str] = []
+        self._participant_has_id_col = False
+        self._commenter_has_id_col = False
         self._detect_schema_columns()
 
     def _column_exists(self, table: str, column: str) -> bool:
@@ -109,12 +112,16 @@ class CommentDatabase:
             self._participant_fk_col = "url"
         if not self._column_exists("commenters", "event_id") and self._column_exists("commenters", "url"):
             self._commenter_fk_col = "url"
+        self._participant_has_id_col = self._column_exists("participants", "id")
+        self._commenter_has_id_col = self._column_exists("commenters", "id")
         print(
             "DEBUG: [Supabase schema] "
             f"posts.{self._post_key_col}, "
             f"participants.{self._participant_fk_col}, "
             f"commenters.{self._commenter_fk_col}, "
-            f"posts_cols={self._post_opt_cols}"
+            f"posts_cols={self._post_opt_cols}, "
+            f"participant_row_id={self._participant_has_id_col}, "
+            f"commenter_row_id={self._commenter_has_id_col}"
         )
 
     def _post_select_cols(self, extra: Optional[List[str]] = None) -> str:
@@ -326,20 +333,82 @@ class CommentDatabase:
         self._save_post_row_resilient(event_id, post_data)
 
         if participants_dict:
+            author_to_pid: Dict[str, Any] = {}
+            if self._participant_has_id_col:
+                try:
+                    sel = (
+                        self.supabase.table("participants")
+                        .select("id,author")
+                        .eq(self._participant_fk_col, event_id)
+                        .execute()
+                    )
+                    for pr in sel.data or []:
+                        a = pr.get("author")
+                        pid = pr.get("id")
+                        if a is not None and pid is not None:
+                            author_to_pid[str(a)] = pid
+                except Exception as e:
+                    print(f"DEBUG: [participants id prefetch] {e}")
+
             p_batch = []
             for author, v in participants_dict.items():
                 count = v[0] if isinstance(v, (tuple, list)) else v
-                p_batch.append({self._participant_fk_col: event_id, "author": author, "count": count})
+                row: Dict[str, Any] = {
+                    self._participant_fk_col: event_id,
+                    "author": author,
+                    "count": count,
+                }
+                if self._participant_has_id_col:
+                    pid = author_to_pid.get(str(author))
+                    if pid is not None:
+                        row["id"] = pid
+                    elif author_to_pid and any(
+                        isinstance(x, int) and not isinstance(x, bool) for x in author_to_pid.values()
+                    ):
+                        # 정수 SERIAL PK: 신규 행은 id 생략(DB default/sequence 기대).
+                        pass
+                    else:
+                        # UUID 등 NOT NULL + default 없음 스키마: 클라이언트에서 id 부여.
+                        row["id"] = str(uuid.uuid4())
+                p_batch.append(row)
             for i in range(0, len(p_batch), 500):
                 self.supabase.table("participants").upsert(
                     p_batch[i : i + 500], on_conflict=f"{self._participant_fk_col},author"
                 ).execute()
 
         if all_commenters:
+            name_to_cid: Dict[str, Any] = {}
+            if self._commenter_has_id_col:
+                try:
+                    sel_c = (
+                        self.supabase.table("commenters")
+                        .select("id,author")
+                        .eq(self._commenter_fk_col, event_id)
+                        .execute()
+                    )
+                    for cr in sel_c.data or []:
+                        a = cr.get("author")
+                        cid = cr.get("id")
+                        if a is not None and cid is not None:
+                            name_to_cid[str(a)] = cid
+                except Exception as e:
+                    print(f"DEBUG: [commenters id prefetch] {e}")
+
             c_batch = []
             for item in all_commenters:
                 name = item["name"] if isinstance(item, dict) else item
-                c_batch.append({self._commenter_fk_col: event_id, "author": name})
+                crow: Dict[str, Any] = {self._commenter_fk_col: event_id, "author": name}
+                if self._commenter_has_id_col:
+                    cid = name_to_cid.get(str(name))
+                    if cid is not None:
+                        crow["id"] = cid
+                    elif name_to_cid and any(
+                        isinstance(x, int) and not isinstance(x, bool) for x in name_to_cid.values()
+                    ):
+                        pass
+                    else:
+                        crow["id"] = str(uuid.uuid4())
+                c_batch.append(crow)
             for i in range(0, len(c_batch), 1000):
                 self.supabase.table("commenters").upsert(
                     c_batch[i : i + 1000], on_conflict=f"{self._commenter_fk_col},author"

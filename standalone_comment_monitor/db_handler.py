@@ -110,6 +110,43 @@ class CommentDatabase:
             print(f"DEBUG: [infer id type {table}] {e}")
         return "int"
 
+    def _assign_missing_integer_ids(self, table: str, batch: List[Dict[str, Any]]) -> None:
+        """정수 id + DB default 없음: NOT NULL(23502) 방지를 위해 테이블 전역 max(id) 뒤로 순번 부여."""
+        if not batch:
+            return
+        cur = 0
+        try:
+            r = (
+                self.supabase.table(table)
+                .select("id")
+                .order("id", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if r.data and r.data[0].get("id") is not None:
+                cur = int(r.data[0]["id"])
+        except Exception as e:
+            print(f"DEBUG: [max id {table}] {e}")
+        used: set = set()
+        for row in batch:
+            rid = row.get("id")
+            if rid is None:
+                continue
+            try:
+                iv = int(rid)
+                cur = max(cur, iv)
+                used.add(iv)
+            except (TypeError, ValueError):
+                pass
+        for row in batch:
+            if row.get("id") is not None:
+                continue
+            cur += 1
+            while cur in used:
+                cur += 1
+            row["id"] = cur
+            used.add(cur)
+
     def _column_exists(self, table: str, column: str) -> bool:
         try:
             self.supabase.table(table).select(column).limit(1).execute()
@@ -415,6 +452,8 @@ class CommentDatabase:
                     ct = author_to_ct.get(self._norm_author_key(author))
                     row["created_at"] = ct if ct is not None else datetime.now().isoformat()
                 p_batch.append(row)
+            if self._participant_has_id_col and self._participant_id_sql_type == "int":
+                self._assign_missing_integer_ids("participants", p_batch)
             for i in range(0, len(p_batch), 500):
                 self.supabase.table("participants").upsert(
                     p_batch[i : i + 500], on_conflict=f"{self._participant_fk_col},author"
@@ -464,6 +503,8 @@ class CommentDatabase:
                     cct = name_to_c_ct.get(self._norm_author_key(name))
                     crow["created_at"] = cct if cct is not None else datetime.now().isoformat()
                 c_batch.append(crow)
+            if self._commenter_has_id_col and self._commenter_id_sql_type == "int":
+                self._assign_missing_integer_ids("commenters", c_batch)
             for i in range(0, len(c_batch), 1000):
                 self.supabase.table("commenters").upsert(
                     c_batch[i : i + 1000], on_conflict=f"{self._commenter_fk_col},author"

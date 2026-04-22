@@ -18,7 +18,7 @@
 
 ### 1.2 확정한 원인 요약
 
-1. **`#main-container { justify-content: center }`** — 가용 너비가 스크롤바 등으로 바뀔 때마다 **가로 flex 행 전체가 재중앙**되며 밀림.
+1. **`#main-container { justify-content: center }`** — 과거에는 루트 스크롤바 **토글**로 가용 너비가 바뀔 때 **가로 행이 재중앙**되며 밀림. **`html` 스크롤 트랙 고정 후**에는 같은 이유가 약해져 `center` 복구 가능(재미니).
 2. **`body { align-items: center }`** + flex 자식 — 교차축에서 **폭·정렬이 흔들릴 여지**.
 3. **`100vw` / `92vw`** — 세로 스크롤 유무와 **가로 재계산**이 맞물림.
 4. **`#main-container`만 `width: 100%` + `margin: 0 auto`** — `body`가 `display: flex`일 때 자식이 **가로 100%로 풀리면** `margin: auto`가 **좌우 여백을 못 나눔** → 게스트도 **왼쪽 붙음**처럼 보임.
@@ -30,7 +30,7 @@
 | **`html`** | `overflow-y: scroll !important`, `scrollbar-gutter: stable`, `height: 100%` — **스크롤 트랙 자리 고정**(재미니 “safe centering”과 정합). |
 | **`body`** | `flex-direction: column`, **`align-items: stretch`**, `overflow-y: visible` — 루트만 세로 스크롤. |
 | **`.layout-shell`** | **`#header` + `#controls` + `#main-container`**를 한 블록으로 감쌈. `width: min(100%, 1600px)`, `margin-left/right: auto`, `align-self: center` — **flex 자식 단독으로는 안 되던 중앙 정렬**을 블록 단위로 해결. |
-| **`#main-container`** | **`justify-content: flex-start`** 유지(행 재중앙으로 인한 밀림 제거). 폭은 셸 안에서 `width: 100%`. |
+| **`#main-container`** | 데스크톱: **`justify-content: center`**(가로 행 시각적 중앙). `html` 스크롤 트랙 고정으로 예전 같은 폭 토글·밀림은 없어야 함. 모바일(`@media`)은 **`flex-start`** 유지(세로 스택 상단 정렬). 폭은 셸 안 `width: 100%`. |
 | **모바일** (`max-width: 1200px`) | `.layout-shell`을 `align-self: stretch`, `margin: 0`, `max-width: 100%`로 풀폭. |
 | **기타** | `@media`의 `vw` 제거·차트 `aspect-ratio`, 내부 패널 `scrollbar-gutter` 제거 등(`389410e`, `3975b29` 계열). |
 
@@ -40,19 +40,21 @@
 
 | 커밋 | 내용 |
 |------|------|
-| `d863c66` | `body` stretch + `#main-container` `justify-content: flex-start` (가로 점프 완화) |
+| `d863c66` | `body` stretch + `#main-container` `justify-content: flex-start` (당시 가로 점프 완화; 이후 스크롤 고정·셸과 함께 `center`로 복구 가능) |
 | `d7dd46f` | `html` 스크롤 고정 강화 + `main`에 `margin: auto`·`min(100%,1600px)` 시도(단독으로는 한계) |
 | `6e91f06` | **`.layout-shell` 도입** — 좌측 붙음·중앙 복구의 **결정타** |
 | (선행) `389410e`, `3975b29`, `660db3e` 등 | `vw` 제거, 내부 `scrollbar-gutter`, 루트 `html` 스크롤 등 |
+| `ecbc2a2` | 스크롤 트랙 고정 전제로 **`#main-container` `justify-content: center`** 복구(넓은 화면 행 중앙, 재미니) |
 
 ### 1.5 사용자 확인
 
 - **“꼼짝을 안 한다”** — 가로 시프트·이중 스크롤 체감이 **해소된 상태로 보고**(2026-04-21).
+- **후속(재미니):** 루트 스크롤 트랙이 이미 고정이므로, 넓은 화면에서 행이 왼쪽에만 몰리지 않게 데스크톱 **`#main-container`에 `justify-content: center` 복구**. 모바일 `@media`는 `flex-start` 유지.
 
 ### 1.6 재발·회귀 시 (재미니 체크리스트 요약)
 
 - DevTools로 **스크롤이 실제로 붙는 노드** 확인(가짜 루트).
-- `justify-content: center`를 **가로 행 전체**에 다시 쓰지 않기.
+- **`html` 스크롤 트랙이 깨지면** 다시 `justify-content: center`가 **폭 변동 + 재중앙**과 맞물릴 수 있음 → 루트 스크롤부터 확인.
 - **`layout-shell`을 깨거나** `body`를 다시 `align-items: center`만 두지 않기.
 - 임시 분기용 CSS는 아래(필요 시만 로컬).
 

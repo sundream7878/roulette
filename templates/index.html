@@ -271,7 +271,8 @@
 
         #main-container {
             display: flex;
-            justify-content: flex-start;
+            /* html 스크롤 트랙 고정 후 가용 폭이 안정 → 행 가운데 정렬 복구(재미니). 모바일은 @media에서 flex-start 유지 */
+            justify-content: center;
             align-items: flex-start;
             padding: 20px;
             width: 100%;

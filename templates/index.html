@@ -269,14 +269,15 @@
             line-height: 1.45;
         }
 
+        /* #main-container — 재미니: 과거 flex-start(왼쪽 고정)는 스크롤바 토클 땜에 쓰던 임시방편. 지금은 html{overflow-y:scroll}로 트랙이 고정되므로 flex-start 봉인 해제 → 가운데로. */
         #main-container {
             display: flex;
             flex-direction: row;
-            /* html overflow-y:scroll + scrollbar-gutter로 가로 폭이 안정 → 봉인해둔 center 복구(재미니). 데스크톱만: 아래 min-width 미디어로 고정. */
+            width: 100%;
+            /* justify-content: flex-start; ← 제거(범인), 아래 center 유지 */
             justify-content: center;
             align-items: flex-start;
             padding: 20px;
-            width: 100%;
             box-sizing: border-box;
             overflow-x: hidden;
             overflow-y: visible;
@@ -394,6 +395,7 @@
                 align-self: stretch;
             }
 
+            /* flex-start: 세로 스택(모바일)용 — 넓은 화면 ‘왼쪽 붙음’의 flex-start(범인)와 목적이 다름 */
             #main-container {
                 flex-direction: column;
                 align-items: center;
@@ -1158,15 +1160,19 @@
             max-width: 460px;
         }
 
-        /* 재미니 1초 디버그: <body>에 class="debug-layout" 잠시 추가 → 빨강=셸, 파랑=메인. 확인 후 class만 제거(배포 시 미사용) */
-        body.debug-layout .layout-shell {
-            outline: 3px solid red !important;
-            outline-offset: 2px;
+        /*
+         * 재미니 1초 디버깅(가이드 그대로) — 배포 전 이 블록·html 클래스 제거
+         * 빨강=셸이 가운덤이면: 파란 #main-container 안 쏠림은 flex-start(위에서 center로 해결).
+         * 빨강=셸이 왼쪽이면: body flex가 .layout-shell align-self:center·margin:auto와 충돌.
+         * 활성: 최상단 <html>에 class="jemin-layout-debug" 잠시 추가(공개 전 삭제)
+         */
+        /* 임시 디버깅용: 배포 전 삭제 */
+        html.jemin-layout-debug .layout-shell {
+            border: 3px solid red !important;
         }
 
-        body.debug-layout #main-container {
-            outline: 3px solid blue !important;
-            outline-offset: 2px;
+        html.jemin-layout-debug #main-container {
+            border: 3px solid blue !important;
         }
     </style>
     <link rel="icon" href="data:,">

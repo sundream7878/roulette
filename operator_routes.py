@@ -273,7 +273,15 @@ def api_save():
             return _operator_storage_error_response(err_act)
     # 활성이 달랐다가 맞춰진 경우뿐 아니, 처음부터 동일해도 게스트(SSR)는 소켓 없으면 갱신 못 하므로 항상 한 번 송신
     _broadcast_active_event_changed(key)
-    return jsonify({"ok": True, "event_key": key, "created": False, "title": title or ""})
+    return jsonify(
+        {
+            "ok": True,
+            "event_key": key,
+            "created": False,
+            "title": title or "",
+            "winners": winners or "",
+        }
+    )
 
 
 @operator_bp.post("/new")

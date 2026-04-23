@@ -1665,6 +1665,9 @@
             window._opDraftEventMeta = null;
             window._holdWinnerChecksUntilNextStart = false;
             var key = (d && d.event_key) ? d.event_key : '';
+            if (d && Object.prototype.hasOwnProperty.call(d, 'winners')) {
+                window._opCurrentWinners = d.winners != null ? String(d.winners) : '';
+            }
             var hid = document.getElementById('op-event-key');
             if (hid) hid.value = key;
             opActiveKey = key;
@@ -1926,6 +1929,9 @@
                         opApplySelectedEventToLivePanels(livePayload);
                         opRenderWinnersPanel(livePayload.prizes || '', livePayload.winners || '');
                         opUpdateParticipantsTotalFromText(livePayload.allowed_list_text || '');
+                        if (typeof clearWinnerUiAfterReset === 'function') {
+                            clearWinnerUiAfterReset();
+                        }
                         opSetStatus('저장했습니다.', false);
                         // 저장 직후에는 실시간 이벤트가 연쇄로 들어오므로 강제 새로고침을 피한다.
                         // (화면이 사라졌다 나타나는 현상/깜빡임 방지)
@@ -2785,6 +2791,15 @@
             if (congratulation) {
                 congratulation.style.display = 'none';
                 congratulation.classList.remove('blink');
+            }
+            var nameV2 = document.getElementById('winner-name-v2');
+            if (nameV2) {
+                nameV2.textContent = '';
+                nameV2.style.display = 'block';
+            }
+            if (!window._rouletteEventClosed) {
+                var cmsgV2 = document.getElementById('congrat-msg');
+                if (cmsgV2) cmsgV2.textContent = '썬드림 이벤트 당첨을 축하드립니다!! 🎊';
             }
             var winnerOverlay = document.getElementById('winner-overlay');
             if (winnerOverlay && !window._rouletteEventClosed) {

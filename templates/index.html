@@ -269,34 +269,27 @@
             line-height: 1.45;
         }
 
-        /* #main-container — 재미니: 과거 flex-start(왼쪽 고정)는 스크롤바 토클 땜에 쓰던 임시방편. 지금은 html{overflow-y:scroll}로 트랙이 고정되므로 flex-start 봉인 해제 → 가운데로. */
+        /* #main-container: 한 번에 쓰던 flex+justify:center+overflow-x hidden 조합이 넓은 화면에서 «unsafe center»로 풀려 왼쪽 붙은 것처럼 보일 수 있음 → 실제 룰렛~사은품 행은 .main-row로 감싸 margin auto로 가운데 묶음(재미니) */
         #main-container {
-            display: flex;
-            flex-direction: row;
+            display: block;
             width: 100%;
-            /* justify-content: flex-start; ← 제거(범인), 아래 center 유지 */
-            justify-content: center;
-            align-items: flex-start;
             padding: 20px;
             box-sizing: border-box;
-            overflow-x: hidden;
+            overflow-x: visible;
             overflow-y: visible;
             min-height: 0;
         }
 
-        /* 데스크톱(넓은 모니터): 세로 스택 @media(1200px)과 충돌 방지 + 가운데 정렬 확정. 명단 열이 과도히 넓으면 행 전체가 .layout-shell을 넘고 overflow-x:hidden에 잘려 «왼쪽 붙음»처럼 보인다. */
-        @media (min-width: 1201px) {
-            #main-container {
-                flex-direction: row;
-                justify-content: center;
-                align-items: flex-start;
-            }
-
-            #all-participants-container {
-                max-width: min(100%, 420px);
-                flex: 0 1 auto;
-                min-width: 0;
-            }
+        /* 룰렛+명단+우열을 한 덩어리로: 가로폭 max-content(캡:100%) + margin auto = overflow-x로 잘려 보이는 현상 완화 */
+        .main-row {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            justify-content: flex-start;
+            width: max-content;
+            max-width: 100%;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         #prize-right-col {
@@ -306,7 +299,9 @@
             margin-left: 40px;
             width: 320px;
             min-width: 300px;
-            height: 600px;
+            /* 고정 600 + 내부 스크롤 → 문서+안쪽 이중 막대. 1201px+에서는 위 미디어로 height:auto·overflow 끔 */
+            min-height: 600px;
+            height: auto;
         }
 
         #chart-container {
@@ -395,11 +390,16 @@
                 align-self: stretch;
             }
 
-            /* flex-start: 세로 스택(모바일)용 — 넓은 화면 ‘왼쪽 붙음’의 flex-start(범인)와 목적이 다름 */
-            #main-container {
+            .main-row {
                 flex-direction: column;
                 align-items: center;
-                justify-content: flex-start;
+                width: 100%;
+                max-width: 100%;
+                margin-left: 0;
+                margin-right: 0;
+            }
+
+            #main-container {
                 padding: 12px;
                 max-width: 100%;
                 width: 100%;
@@ -419,6 +419,7 @@
                 width: min(100%, 600px);
                 max-width: 100%;
                 max-height: 420px;
+                overflow-y: auto;
             }
 
             #prize-right-col {
@@ -817,12 +818,10 @@
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
 
-        /* 전체 사전 명단 컨테이너 */
+        /* 전체 사전 명단 컨테이너 — 데스크톱은 아래 @media(min-width:1201px)에서 폭·스크롤; 구 600+auto는 문서(html)와 이중 막대 유발 */
         #all-participants-container {
             margin-left: 40px;
             text-align: left;
-            max-height: 600px;
-            overflow-y: auto;
             min-width: 160px;
         }
 
@@ -1160,6 +1159,32 @@
             max-width: 460px;
         }
 
+        /* 데스크톱(1201px+): 이 블록을 스타일 맨 끄트머리에 둬서 #prize-list/#memo·컨테이너 base보다 우선 — html만 세로 스크롤, 이중 막대 완화 */
+        @media (min-width: 1201px) {
+            #all-participants-container {
+                max-width: min(100%, 420px);
+                flex: 0 1 auto;
+                min-width: 0;
+            }
+
+            #prize-right-col {
+                min-height: 600px;
+                height: auto;
+            }
+
+            #prize-container,
+            #memo-container {
+                flex: 0 0 auto;
+            }
+
+            #prize-list,
+            #memo-content-scroll {
+                flex: 0 1 auto;
+                min-height: 0;
+                overflow-y: visible;
+            }
+        }
+
         /*
          * 재미니 1초 디버깅(가이드 그대로) — 배포 전 이 블록·html 클래스 제거
          * 빨강=셸이 가운덤이면: 파란 #main-container 안 쏠림은 flex-start(위에서 center로 해결).
@@ -1173,6 +1198,11 @@
 
         html.jemin-layout-debug #main-container {
             border: 3px solid blue !important;
+        }
+
+        /* 가운데 묶는 실제 룰렛~사은품 행(디버그용) */
+        html.jemin-layout-debug .main-row {
+            border: 3px solid #0a0 !important;
         }
     </style>
     <link rel="icon" href="data:,">
@@ -1252,6 +1282,7 @@
     </div>
 
     <div id="main-container">
+        <div class="main-row">
         <div id="chart-container">
             <div id="pointer"></div>
             <div id="rotating-container">
@@ -1327,6 +1358,7 @@
                 </div>
             </div>
         </div>
+        </div><!-- /.main-row -->
     </div>
     </div><!-- /.layout-shell -->
 
